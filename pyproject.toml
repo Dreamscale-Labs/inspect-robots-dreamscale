@@ -29,6 +29,10 @@ dropbear = "inspect_robots_dreamscale:dropbear_policy"
 [tool.hatch.build.targets.wheel]
 packages = ["src/inspect_robots_dreamscale"]
 
+[tool.hatch.build.targets.sdist]
+# compat/ is the separate inspect-robots-dropbear distribution.
+exclude = ["compat"]
+
 [tool.hatch.metadata]
 allow-direct-references = true
 
