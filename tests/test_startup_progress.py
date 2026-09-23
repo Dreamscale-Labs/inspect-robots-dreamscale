@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import threading
+import time
 
 import pytest
 
@@ -60,9 +61,9 @@ def test_non_interactive_prints_message_stages_and_heartbeat(monkeypatch) -> Non
     assert "\r" not in stream.getvalue()
 
 
-@pytest.mark.parametrize("columns", [12, 20, 40, 60, 80, 120, 200])
-def test_spinner_line_never_exceeds_the_terminal_width(columns: int) -> None:
-    """Catch a long stage wrapping the spinner line, which \\r cannot erase."""
+@pytest.mark.parametrize("columns", [12, 20, 30, 40, 60, 80, 120, 200])
+def test_spinner_is_one_short_line_that_never_exceeds_the_terminal(columns: int) -> None:
+    """Catch SDK stage text cluttering the spinner, or a long line wrapping (\\r can't erase it)."""
     stream = io.StringIO()
     clock = _Clock()
     progress = _StartupProgress(
@@ -76,41 +77,47 @@ def test_spinner_line_never_exceeds_the_terminal_width(columns: int) -> None:
     with progress:
         clock.now = 125.0
         progress.update(LONG_STAGE)
+        progress.update(
+            "Starting your compute: 0s elapsed (estimate 900s; model load can take longer)"
+        )
+        deadline = time.monotonic() + 2.0
+        while "2m05s" not in stream.getvalue() and time.monotonic() < deadline:
+            time.sleep(0.01)
     text = stream.getvalue()
     frames = _spinner_frames(text)
     assert frames, "the spinner never drew"
+    assert "\n" not in text
     assert all(len(frame) <= columns - 1 for frame in frames)
-    # The long explanation is printed once, as a normal line that may wrap freely.
-    assert text.startswith(
-        "dreamscale: starting DreamZero-YAM compute (a cold start can take several minutes)\n"
-    )
+    assert not any("Worker" in frame or "estimate" in frame for frame in frames)
     # Elapsed time leads the line, so even the narrowest terminal still shows it.
     assert "2m05s" in frames[-1]
+    full = "2m05s dreamscale: starting compute (a few mins)"
     if columns >= 60:
-        assert any(
-            "2m05s dreamscale: starting compute · Worker allocated" in frame for frame in frames
-        )
-    staged = [frame for frame in frames if "·" in frame]
-    if columns < 200:
-        assert all(frame.endswith("…") for frame in staged)
+        assert frames[-1].endswith(full)
     else:
-        assert any(frame.endswith(LONG_STAGE) for frame in staged)
+        assert frames[-1].endswith("…")
 
 
 def test_spinner_follows_a_terminal_resize() -> None:
     """Catch the width being measured once, so shrinking the window wraps the line."""
     stream = io.StringIO()
     width = [120]
+    clock = _Clock()
     progress = _StartupProgress(
-        "starting compute", stream=stream, interactive=True, tick_s=0.01, columns=lambda: width[0]
+        "starting compute",
+        stream=stream,
+        interactive=True,
+        tick_s=60,
+        clock=clock,
+        columns=lambda: width[0],
     )
     with progress:
-        progress.update(LONG_STAGE)
-        width[0] = 30
-        progress.update(LONG_STAGE + " (still)")
-    frames = _spinner_frames(stream.getvalue())
-    assert max(len(f) for f in frames) > 30
-    assert len(frames[-1]) <= 29
+        first = _spinner_frames(stream.getvalue())[-1]
+        width[0] = 20
+        progress._render(1)
+    last = _spinner_frames(stream.getvalue())[-1]
+    assert first.endswith("starting compute (a few mins)")
+    assert len(last) <= 19 and last.endswith("…")
 
 
 def test_interactive_clears_line_on_exit_and_on_error() -> None:

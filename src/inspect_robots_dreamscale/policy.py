@@ -193,11 +193,13 @@ class _StartupProgress:
     """Visible progress while a session starts, so a cold start never looks frozen.
 
     Inspect Robots calls ``reset()`` and waits; it has no progress surface for a
-    policy that is starting, so the adapter owns this. On a terminal it prints the
-    message once, then redraws one spinner line with elapsed time and the SDK's
-    latest stage, cut to the current terminal width on every redraw so it never
-    wraps (a wrapped line cannot be erased with a carriage return). Otherwise it
-    prints each SDK stage plus a heartbeat every ``_HEARTBEAT_S`` seconds.
+    policy that is starting, so the adapter owns this. On a terminal it redraws one
+    short spinner line, ``⠋ 1m46s dreamscale: starting compute (a few mins)``, cut
+    to the current terminal width on every redraw so it never wraps (a wrapped
+    line cannot be erased with a carriage return). The SDK's stage lines are not
+    shown there: they repeat the timer and read as noise. Otherwise (a log or a
+    pipe) it prints the message, each SDK stage and a heartbeat every
+    ``_HEARTBEAT_S`` seconds.
 
     The SDK keeps the same ``on_progress`` sink for the whole session, so lines
     that arrive after startup (such as the run summary at close) are printed as
@@ -213,8 +215,10 @@ class _StartupProgress:
         tick_s: float = 0.25,
         clock: Callable[[], float] = time.monotonic,
         columns: Callable[[], int] | None = None,
+        spinner_label: str = "starting compute (a few mins)",
     ) -> None:
         self._message = message
+        self._spinner_label = spinner_label
         self._stream = stream if stream is not None else sys.stderr
         if interactive is None:
             try:
@@ -225,7 +229,6 @@ class _StartupProgress:
         self._tick_s = tick_s
         self._clock = clock
         self._columns = columns or (lambda: _stream_columns(self._stream))
-        self._stage = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -246,8 +249,7 @@ class _StartupProgress:
     def _render(self, frame: int) -> None:
         glyph = _SPINNER_FRAMES[frame % len(_SPINNER_FRAMES)]
         # Elapsed time leads so it survives truncation on the narrowest terminals.
-        head = f"{glyph} {_format_elapsed(self._elapsed())} dreamscale: starting compute"
-        line = f"{head} · {self._stage}" if self._stage else head
+        line = f"{glyph} {_format_elapsed(self._elapsed())} dreamscale: {self._spinner_label}"
         # One column spare: some terminals wrap when the last column is written.
         width = max(self._columns() - 1, 1)
         self._write(f"\r\x1b[2K{_fit(line, width)}")
@@ -273,24 +275,23 @@ class _StartupProgress:
                     )
 
     def update(self, line: str) -> None:
-        """SDK ``on_progress`` sink: the newest startup stage, or a plain line after."""
+        """SDK ``on_progress`` sink: silent under the spinner, a plain line otherwise."""
         text = " ".join(str(line).split())
         if not text:
             return
         with self._lock:
             if self._active and self._interactive:
-                self._stage = text
-                self._render(0)
-            else:
-                self._write(f"dreamscale: {text}\n")
+                return
+            self._write(f"dreamscale: {text}\n")
 
     def __enter__(self) -> _StartupProgress:
         self._started = self._clock()
         with self._lock:
             self._active = True
-            self._write(f"dreamscale: {self._message}\n")
             if self._interactive:
                 self._render(0)
+            else:
+                self._write(f"dreamscale: {self._message}\n")
         self._thread = threading.Thread(
             target=self._run, name="dreamscale-startup-progress", daemon=True
         )
