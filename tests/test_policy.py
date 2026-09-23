@@ -17,12 +17,7 @@ from inspect_robots.rollout import TrialRecord
 from inspect_robots.scene import Scene
 from inspect_robots.types import Observation
 
-from inspect_robots_dreamscale import (
-    DreamscalePolicy,
-    DropbearPolicy,
-    dreamscale_policy,
-    dropbear_policy,
-)
+from inspect_robots_dreamscale import dreamscale_policy
 
 
 class FakeRemotePolicy:
@@ -747,41 +742,17 @@ def test_keep_warm_is_recorded_in_telemetry(monkeypatch) -> None:
     assert policy._telemetry_rows[0]["runtime"]["keep_warm_s"] == 120
 
 
-def test_both_policy_names_are_registered_entry_points() -> None:
-    """Catch dropping the new name, or the pre-rename alias existing configs use."""
+def test_dreamscale_is_the_only_policy_name_this_package_registers() -> None:
+    """Catch a dropped entry point, or a pre-rename name coming back."""
     from importlib.metadata import entry_points
 
-    names = {ep.name: ep.value for ep in entry_points(group="inspect_robots.policies")}
+    names = {
+        ep.name: ep.value
+        for ep in entry_points(group="inspect_robots.policies")
+        if ep.value.startswith("inspect_robots_dreamscale")
+    }
 
-    assert names["dreamscale"] == "inspect_robots_dreamscale:dreamscale_policy"
-    assert names["dropbear"] == "inspect_robots_dreamscale:dropbear_policy"
-
-
-def test_dropbear_alias_is_the_same_policy_with_pre_rename_artifact_names(
-    monkeypatch, tmp_path: Path
-) -> None:
-    """Catch the alias silently renaming artifacts that existing tooling reads."""
-    remote = FakeRemotePolicy(step_result=step_result())
-    monkeypatch.setattr(
-        "inspect_robots_dreamscale.policy.dreamscale.connect",
-        lambda *_args, **_kwargs: remote,
-    )
-    policy = dropbear_policy(model="dreamzero-yam")
-    assert isinstance(policy, DreamscalePolicy)
-    assert isinstance(policy, DropbearPolicy)
-    assert policy.info.name == "dropbear"
-
-    policy.on_trial_start("spell", 0, str(tmp_path), "run-123")
-    policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
-    chunk = policy.act(inspect_observation())
-    record = TrialRecord(scene_id="spell", epoch=0, seed=7)
-    policy.on_trial_end(record, str(tmp_path), "run-123")
-
-    assert chunk.meta == {"dropbear_join_key": "2:8"}
-    assert chunk.actions[0].meta["dropbear_action_source"] == "model"
-    assert record.metadata == {"dropbear_telemetry": "dropbear/run-123/spell-e0.jsonl"}
-    assert (tmp_path / "dropbear/run-123/spell-e0.jsonl").is_file()
-    assert not (tmp_path / "dreamscale").exists()
+    assert names == {"dreamscale": "inspect_robots_dreamscale:dreamscale_policy"}
 
 
 def test_closed_error_names_the_class_the_caller_constructed() -> None:

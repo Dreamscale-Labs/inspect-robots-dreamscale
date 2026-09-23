@@ -18,20 +18,18 @@ dependencies = [
   "numpy>=2.0,<3",
 ]
 
+[project.urls]
+Repository = "https://github.com/Dreamscale-Labs/inspect-robots-dreamscale"
+Documentation = "https://docs.dreamscalelabs.com/guides/inspect-robots"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "ruff>=0.7", "mypy>=1.11"]
 
 [project.entry-points."inspect_robots.policies"]
 dreamscale = "inspect_robots_dreamscale:dreamscale_policy"
-# Pre-rename name, kept so existing `--policy dropbear` configs keep working.
-dropbear = "inspect_robots_dreamscale:dropbear_policy"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/inspect_robots_dreamscale"]
-
-[tool.hatch.build.targets.sdist]
-# compat/ is the separate inspect-robots-dropbear distribution.
-exclude = ["compat"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

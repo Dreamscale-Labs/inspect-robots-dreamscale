@@ -129,7 +129,7 @@ class DreamscalePolicy(PolicyBase):
     """Describe DreamZero-YAM without reading config or opening a session."""
 
     # The registry name, and the prefix of every metadata key and artifact path
-    # this policy writes. `DropbearPolicy` overrides it for pre-rename configs.
+    # this policy writes.
     brand: ClassVar[str] = "dreamscale"
 
     region: RegionPreference
@@ -473,22 +473,6 @@ class DreamscalePolicy(PolicyBase):
                 self._remote = None
 
 
-class DropbearPolicy(DreamscalePolicy):
-    """The same policy under its pre-rename name, for existing `--policy dropbear` configs.
-
-    It keeps the pre-rename artifact names (`dropbear_telemetry`,
-    `dropbear/<run_id>/...` and `dropbear_*` action metadata) so tooling written
-    against inspect-robots-dropbear output keeps working unchanged.
-    """
-
-    brand: ClassVar[str] = "dropbear"
-
-
 def dreamscale_policy(**kwargs: Any) -> DreamscalePolicy:
     """Create the registry-discoverable Dreamscale Inspect policy."""
     return DreamscalePolicy(**kwargs)
-
-
-def dropbear_policy(**kwargs: Any) -> DropbearPolicy:
-    """Create the policy under its pre-rename registry name."""
-    return DropbearPolicy(**kwargs)
