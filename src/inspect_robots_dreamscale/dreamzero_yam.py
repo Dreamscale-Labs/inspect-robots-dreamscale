@@ -1,11 +1,35 @@
-"""Strict conversion from Inspect observations to Dreamscale DreamZero-YAM input."""
+"""Strict conversion from Inspect observations to Dreamscale DreamZero-YAM input.
+
+Capture timing has two sources, and every converted observation says which one
+it used:
+
+``per_camera``
+    The embodiment filled ``Observation.image_times`` for all three cameras with
+    real Unix-epoch capture seconds (the Dreamscale YAM fork does this). These
+    are validated strictly: a time more than ``MAX_CAPTURE_AGE_S`` old or more
+    than ``MAX_CAPTURE_FUTURE_S`` ahead of the wall clock is rejected.
+
+``observation_fallback``
+    The embodiment left ``image_times`` empty, as stock upstream
+    ``inspect-robots-yam`` does (it never sets ``image_times`` or
+    ``state_time``). All three cameras are then stamped with one time: the
+    adapter's wall clock (``time.time()``) at the moment ``act()`` received the
+    observation. That is later than the true capture by the embodiment's
+    capture-to-return latency, so frame age is under-reported and a stalled
+    camera cannot be detected here. DreamZero-YAM's server admits frames by
+    control tick, not by capture time, and only requires capture times that
+    never move backwards and precede encode; both hold for this stamp.
+
+A *partial* ``image_times`` (some cameras stamped, some not) is still rejected:
+that is an embodiment bug, not a different contract.
+"""
 
 from __future__ import annotations
 
 import math
 import time
 from collections.abc import Mapping
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import dreamscale as _dreamscale  # type: ignore[import-untyped]
 import numpy as np
@@ -16,6 +40,9 @@ from inspect_robots.types import Observation
 _CAMERA_NAMES = ("top_cam", "left_cam", "right_cam")
 MAX_CAPTURE_AGE_S = 5.0
 MAX_CAPTURE_FUTURE_S = 1.0
+CaptureTiming = Literal["per_camera", "observation_fallback"]
+PER_CAMERA: CaptureTiming = "per_camera"
+OBSERVATION_FALLBACK: CaptureTiming = "observation_fallback"
 dreamscale: Any = _dreamscale
 
 
@@ -56,6 +83,15 @@ def _capture_times_ns(observation: Observation) -> tuple[int, int, int]:
     return cast(tuple[int, int, int], tuple(times_ns))
 
 
+def _fallback_capture_times_ns(received_s: float | None) -> tuple[int, int, int]:
+    """Stamp every camera with the adapter's receive time (see module docstring)."""
+    seconds = time.time() if received_s is None else float(received_s)
+    if not math.isfinite(seconds) or seconds < 0.0:
+        raise ValueError("fallback capture time must be finite Unix-epoch seconds")
+    stamp = round(seconds * 1_000_000_000)
+    return (stamp, stamp, stamp)
+
+
 def _mapping_value(mapping: Mapping[str, object], key: str, *, field: str) -> object:
     try:
         return mapping[key]
@@ -82,12 +118,33 @@ def _joint_positions(observation: Observation) -> npt.NDArray[np.float64]:
 
 def to_dreamzero_yam(observation: Observation) -> DreamZeroYamObservation:
     """Map named Inspect cameras, times, and packed YAM state without synthesis."""
+    converted, _timing = to_dreamzero_yam_with_timing(observation)
+    return converted
+
+
+def to_dreamzero_yam_with_timing(
+    observation: Observation,
+    *,
+    received_s: float | None = None,
+) -> tuple[DreamZeroYamObservation, CaptureTiming]:
+    """Convert, and report which capture-time source the conversion used.
+
+    ``received_s`` is the Unix-epoch time the caller received the observation;
+    it is used only when the embodiment supplied no ``image_times`` at all.
+    """
     joints = _joint_positions(observation)
     frames = tuple(
         _mapping_value(observation.images, name, field="images") for name in _CAMERA_NAMES
     )
-    times = _capture_times_ns(observation)
-    return dreamscale.dreamzero_yam.observe(
+    image_times = getattr(observation, "image_times", None)
+    timing: CaptureTiming
+    if not image_times:
+        times = _fallback_capture_times_ns(received_s)
+        timing = OBSERVATION_FALLBACK
+    else:
+        times = _capture_times_ns(observation)
+        timing = PER_CAMERA
+    converted = dreamscale.dreamzero_yam.observe(
         top_frame=frames[0],
         left_frame=frames[1],
         right_frame=frames[2],
@@ -97,3 +154,4 @@ def to_dreamzero_yam(observation: Observation) -> DreamZeroYamObservation:
         right_joint_positions=joints[7:13],
         right_gripper=float(joints[13]),
     )
+    return converted, timing

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import atexit
+import concurrent.futures.thread  # noqa: F401 - see _register_threading_exit
 import math
+import signal
 import statistics
+import sys
 import threading
 import time
 import warnings
@@ -28,7 +31,10 @@ from inspect_robots.spaces import (
 )
 from inspect_robots.types import Action, ActionChunk, Observation
 
-from inspect_robots_dreamscale.dreamzero_yam import to_dreamzero_yam
+from inspect_robots_dreamscale.dreamzero_yam import (
+    OBSERVATION_FALLBACK,
+    to_dreamzero_yam_with_timing,
+)
 from inspect_robots_dreamscale.telemetry import (
     TrialContext,
     runtime_identity,
@@ -57,11 +63,34 @@ YAM_ACTION_HORIZON = 24
 # create; this bound is restated so an unusable value fails during
 # construction, before a cold start has been paid for.
 #
-# Zero -- the default -- means close really closes. Any positive value makes
-# `close()` park instead of terminate, and **parked time bills at the full
-# rate**, because the GPU stays reserved for you. That trade only pays off
-# across an iteration loop of short, closely-spaced runs.
+# Zero means close really closes. Any positive value makes `close()` park
+# instead of terminate, and **parked time bills at the full rate**, because the
+# GPU stays reserved for you.
+#
+# The default is a 300 s hold. Inspect Robots builds one policy per process and
+# the stock YAM batch runner (`run_batch.sh`) starts a new process per trial, so
+# without a hold every trial would pay a full cold start. The first session open
+# prints one line saying the hold is billed and that `-P keep_warm_s=0` turns it
+# off.
 MAX_KEEP_WARM_S = 3600
+DEFAULT_KEEP_WARM_S = 300
+
+# Upper bound on how long process exit waits to park or stop the session. Long
+# enough for the SDK to close the transport and make one control-plane call on a
+# slow link, short enough that a wedged network cannot hang interpreter exit.
+# If it lapses, the control plane still releases the session when its lease
+# (60 s) expires: parked when a hold was requested, stopped otherwise.
+RELEASE_TIMEOUT_S = 20.0
+
+# Signals whose default action would kill the process without running any exit
+# cleanup. While a session is open they are turned into KeyboardInterrupt (the
+# Ctrl-C path Inspect already handles: the trial is cancelled, the embodiment is
+# closed by the framework, and the session is released at exit). A handler that
+# someone else installed is never replaced.
+_TERMINATION_SIGNAL_NAMES = ("SIGTERM", "SIGHUP")
+_signal_lock = threading.Lock()
+_signal_owners: set[int] = set()
+_installed_signals: list[int] = []
 
 # Fraction by which the measured step rate may differ from the commanded one
 # before `act` says so. Wide on purpose: this is meant to catch an embodiment
@@ -110,7 +139,7 @@ def _resolve_keep_warm(requested: int | None) -> int:
     """Resolve the post-close warm-hold window, in whole seconds."""
 
     if requested is None:
-        return 0
+        return DEFAULT_KEEP_WARM_S
     if isinstance(requested, bool) or not isinstance(requested, Real):
         raise ValueError("keep_warm_s must be a whole number of seconds")
     if not math.isfinite(float(requested)) or not float(requested).is_integer():
@@ -123,6 +152,91 @@ def _resolve_keep_warm(requested: int | None) -> int:
             f"full rate, so this is a cost you choose, not a free cache."
         )
     return resolved
+
+
+def _log(message: str) -> None:
+    """One operator-facing line on stderr; never let a closed stream fail cleanup."""
+    try:
+        print(f"dreamscale: {message}", file=sys.stderr, flush=True)
+    except Exception:
+        pass
+
+
+def _raise_keyboard_interrupt(signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt(f"received {signal.Signals(signum).name}")
+
+
+def _install_termination_handlers(owner: object) -> None:
+    """Route default-fatal termination signals through the Ctrl-C path."""
+    if threading.current_thread() is not threading.main_thread():
+        return
+    with _signal_lock:
+        _signal_owners.add(id(owner))
+        for name in _TERMINATION_SIGNAL_NAMES:
+            signum = getattr(signal, name, None)
+            if signum is None or signum in _installed_signals:
+                continue
+            try:
+                if signal.getsignal(signum) is not signal.SIG_DFL:
+                    continue
+                signal.signal(signum, _raise_keyboard_interrupt)
+            except (OSError, ValueError):
+                continue
+            _installed_signals.append(signum)
+
+
+def _release_termination_handlers(owner: object) -> None:
+    """Restore default dispositions once no open policy needs them."""
+    with _signal_lock:
+        _signal_owners.discard(id(owner))
+        if _signal_owners or threading.current_thread() is not threading.main_thread():
+            return
+        for signum in list(_installed_signals):
+            try:
+                if signal.getsignal(signum) is _raise_keyboard_interrupt:
+                    signal.signal(signum, signal.SIG_DFL)
+            except (OSError, ValueError):
+                continue
+            _installed_signals.remove(signum)
+
+
+def _register_threading_exit(handler: Callable[[], None]) -> bool:
+    """Run ``handler`` at the start of interpreter shutdown, before executors stop.
+
+    ``atexit`` callbacks run *after* ``concurrent.futures`` has shut down, so
+    nothing on the SDK's event loop can resolve a hostname or use an executor
+    there: an HTTP call that needs a fresh connection fails with "cannot
+    schedule new futures after shutdown". The control-plane keep-alive (5 s)
+    is shorter than the heartbeat (20 s), so the park/stop call at exit usually
+    needs a fresh connection. ``threading._register_atexit`` hooks run earlier,
+    in reverse registration order; importing ``concurrent.futures.thread`` at
+    module import guarantees its shutdown hook is registered first and so runs
+    after this one. The private hook is optional: without it the plain
+    ``atexit`` registration remains the fallback.
+    """
+    register = getattr(threading, "_register_atexit", None)
+    if register is None:
+        return False
+    try:
+        register(handler)
+    except RuntimeError:
+        return False
+    return True
+
+
+def _session_acquisition(remote: Any) -> tuple[str, str | None]:
+    """Report whether the control plane reclaimed a parked session.
+
+    Reads the pinned SDK's private connection record; any shape change degrades
+    to "unknown" rather than failing the run.
+    """
+    connection = getattr(getattr(remote, "_async_policy", None), "_connection", None)
+    session = getattr(connection, "session", None)
+    if session is None:
+        return "unknown", None
+    reason = getattr(session, "selection_reason", None)
+    reason = reason if isinstance(reason, str) else None
+    return ("reclaimed" if reason == "keep_warm_reuse" else "new"), reason
 
 
 class DreamscalePolicy(PolicyBase):
@@ -141,7 +255,9 @@ class DreamscalePolicy(PolicyBase):
     _episode_active: bool
     _closed: bool
     _rate_warned: bool
+    _fallback_announced: bool
     _atexit_handler: Callable[[], None]
+    release_timeout_s: float = RELEASE_TIMEOUT_S
 
     def __init__(
         self,
@@ -184,6 +300,11 @@ class DreamscalePolicy(PolicyBase):
         self._last_act_ns: int | None = None
         self._step_intervals_ms: list[float] = []
         self._rate_warned = False
+        self._fallback_announced = False
+        self._task: dict[str, object] | None = None
+        self._session_acquisition: str | None = None
+        self._session_selection_reason: str | None = None
+        self._session_connect_s: float | None = None
         self.info = PolicyInfo(
             name=self.brand,
             action_space=Box(
@@ -208,12 +329,24 @@ class DreamscalePolicy(PolicyBase):
         )
         self.config = PolicyConfig(action_horizon=YAM_ACTION_HORIZON, replan_interval=1)
         self._atexit_handler = self._atexit_close
+        # Inspect never closes a policy, so process exit is the normal release
+        # path, not a rare fallback. The threading hook runs first and can still
+        # reach the network; the atexit hook is a no-op once it has.
+        _register_threading_exit(self._atexit_handler)
         atexit.register(self._atexit_handler)
 
     def _ensure_connected(self) -> Any:
         if self._closed:
             raise RuntimeError(f"{type(self).__name__} is closed")
         if self._remote is None:
+            if self.keep_warm_s > 0:
+                _log(
+                    f"keep_warm_s={self.keep_warm_s}: when this run exits the "
+                    f"DreamZero-YAM session stays warm for up to {self.keep_warm_s} s "
+                    "so the next run skips the cold start. Warm time is billed at the "
+                    "full rate; pass -P keep_warm_s=0 to stop the session at exit instead."
+                )
+            started = time.monotonic()
             self._remote = dreamscale.connect(
                 "dreamzero-yam",
                 region=self.region,
@@ -229,6 +362,13 @@ class DreamscalePolicy(PolicyBase):
                 keep_warm=self.keep_warm_s,
             )
             self._session_id = str(self._remote.session_id)
+            self._session_connect_s = time.monotonic() - started
+            acquisition, reason = _session_acquisition(self._remote)
+            self._session_acquisition = acquisition
+            self._session_selection_reason = reason
+            how = "reclaimed warm" if acquisition == "reclaimed" else "ready"
+            _log(f"session {self._session_id} {how} in {self._session_connect_s:.1f} s")
+            _install_termination_handlers(self)
         return self._remote
 
     @property
@@ -285,7 +425,7 @@ class DreamscalePolicy(PolicyBase):
             )
         remote = self._ensure_connected()
         result = remote.predict(
-            to_dreamzero_yam(observation),
+            to_dreamzero_yam_with_timing(observation, received_s=time.time())[0],
             instruction=instruction,
             timeout_s=self.timeout_s,
         )
@@ -314,9 +454,21 @@ class DreamscalePolicy(PolicyBase):
         if remote is None or not self._episode_active:
             raise RuntimeError("reset() must start an episode before act()")
         step_interval_ms = self._record_step_interval()
+        received_s = time.time()
         started = time.perf_counter()
+        converted, capture_timing = to_dreamzero_yam_with_timing(
+            observation, received_s=received_s
+        )
+        if capture_timing == OBSERVATION_FALLBACK and not self._fallback_announced:
+            self._fallback_announced = True
+            _log(
+                "the embodiment supplies no per-camera image_times (stock "
+                "inspect-robots-yam does not); stamping capture time when act() "
+                "receives each observation. Sidecars record "
+                "capture_timing=observation_fallback."
+            )
         result = remote.step(
-            to_dreamzero_yam(observation),
+            converted,
             action_index=int(env_step),
             timeout_s=self.timeout_s,
         )
@@ -325,10 +477,20 @@ class DreamscalePolicy(PolicyBase):
             runtime = runtime_identity(remote)
             runtime["sampling"] = self.sampling
             runtime["commanded_control_hz"] = self.control_hz
-            runtime["capture_time_source"] = "embodiment_unix_epoch_seconds"
+            runtime["capture_timing"] = capture_timing
+            runtime["capture_time_source"] = (
+                "adapter_wall_clock_at_act"
+                if capture_timing == OBSERVATION_FALLBACK
+                else "embodiment_unix_epoch_seconds"
+            )
             # Recorded because a non-zero hold keeps billing after the run ends,
             # so a surprising invoice should be explicable from the sidecar.
             runtime["keep_warm_s"] = self.keep_warm_s
+            runtime["session_acquisition"] = self._session_acquisition
+            runtime["session_selection_reason"] = self._session_selection_reason
+            runtime["session_connect_s"] = self._session_connect_s
+            if self._task is not None:
+                runtime["task"] = dict(self._task)
             self._telemetry_rows.append(
                 telemetry_row(
                     result,
@@ -402,6 +564,23 @@ class DreamscalePolicy(PolicyBase):
             stacklevel=3,
         )
 
+    def bind_task(self, envelope: Any) -> None:
+        """Record the task identity and step budget for the telemetry sidecar.
+
+        Inspect Robots >= 0.58 calls this once before the first rollout; older
+        releases never do, so the sidecar simply omits ``runtime.task``.
+        """
+        name = getattr(envelope, "name", None)
+        max_steps = getattr(envelope, "max_steps", None)
+        self._task = {
+            "name": name if isinstance(name, str) else None,
+            "max_steps": (
+                int(max_steps)
+                if isinstance(max_steps, Integral) and not isinstance(max_steps, bool)
+                else None
+            ),
+        }
+
     def on_trial_start(self, scene_id: str, epoch: int, log_dir: str, run_id: str) -> None:
         """Capture immutable artifact identity before Inspect resets the policy."""
         self._trial_context = TrialContext(run_id=run_id, scene_id=scene_id, epoch=epoch)
@@ -437,16 +616,71 @@ class DreamscalePolicy(PolicyBase):
             if cleanup_error is not None:
                 raise cleanup_error
 
-    def _close_suppressing_errors(self) -> None:
-        try:
-            self.close()
-        except BaseException:
-            pass
-
     def _atexit_close(self) -> None:
-        thread = threading.Thread(target=self._close_suppressing_errors, daemon=True)
+        """Park or stop the owned session at process exit, bounded in time.
+
+        Runs the synchronous close on a daemon thread and waits at most
+        ``release_timeout_s``. The first Ctrl-C or SIGTERM while waiting is
+        absorbed (the release is usually a second away); a second one abandons
+        the wait. Whatever happens, interpreter exit is never held longer than
+        the bound, and the outcome is reported on stderr with the session id.
+        """
+        if self._closed:
+            return
+        if self._remote is None:
+            self.close()
+            return
+        session_id = self._session_id
+        verb = "parking" if self.keep_warm_s > 0 else "stopping"
+        outcome: list[BaseException | None] = []
+        done = threading.Event()
+
+        def release() -> None:
+            try:
+                self.close()
+            except BaseException as error:
+                outcome.append(error)
+            else:
+                outcome.append(None)
+            finally:
+                done.set()
+
+        # Wait on an Event, not Thread.join(): an interrupted join marks a
+        # still-running thread as finished (the bpo-45274 cleanup releases the
+        # live thread's state lock), which would end the wait early.
+        thread = threading.Thread(target=release, daemon=True, name="dreamscale-release")
         thread.start()
-        thread.join(timeout=5.0)
+        deadline = time.monotonic() + self.release_timeout_s
+        interrupted = False
+        abandoned = False
+        while not done.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                done.wait(timeout=min(remaining, 0.5))
+            except (KeyboardInterrupt, SystemExit):
+                if interrupted:
+                    abandoned = True
+                    break
+                interrupted = True
+                _log(
+                    f"still {verb} session {session_id} (up to "
+                    f"{self.release_timeout_s:g} s); interrupt again to abandon"
+                )
+        if not done.is_set():
+            reason = "abandoned" if abandoned else f"timed out after {self.release_timeout_s:g} s"
+        elif outcome and outcome[0] is not None:
+            error = outcome[0]
+            reason = f"{type(error).__name__}: {error}"
+        else:
+            return
+        fate = "parks" if self.keep_warm_s > 0 else "stops"
+        _log(
+            f"could not confirm {verb} session {session_id} ({reason}). The control "
+            f"plane {fate} it when its 60 s lease lapses, billed until then. To stop "
+            f"it now: dreamscale sessions stop {session_id}"
+        )
 
     def close(self) -> None:
         """End the episode and release the session once.
@@ -465,12 +699,23 @@ class DreamscalePolicy(PolicyBase):
         if remote is None:
             return
         try:
-            self._end_episode()
-        finally:
             try:
-                remote.close()
+                self._end_episode()
             finally:
-                self._remote = None
+                try:
+                    remote.close()
+                finally:
+                    self._remote = None
+        finally:
+            _release_termination_handlers(self)
+        if self.keep_warm_s > 0:
+            _log(
+                f"released session {self._session_id} to a warm hold of up to "
+                f"{self.keep_warm_s} s for the next run to reclaim (billed while held; "
+                "-P keep_warm_s=0 stops it at exit instead)"
+            )
+        else:
+            _log(f"stopped session {self._session_id}")
 
 
 def dreamscale_policy(**kwargs: Any) -> DreamscalePolicy:

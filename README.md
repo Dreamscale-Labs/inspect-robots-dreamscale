@@ -14,6 +14,86 @@ the adapter itself is open.
 Worked examples live in [`examples/`](examples/): a complete evaluation and a
 skeleton embodiment showing the observation and action contract.
 
+## Use with your existing Inspect Robots setup (preview)
+
+> **Preview branch, not the supported path.** This section describes the `thin-plugin` branch
+> (`0.2.0.dev0`), which is unreleased and not on PyPI. The supported, qualified setup is still the
+> pinned rig composition (`inspect-robots-dreamscale-yam` `stable`, adapter `0.1.18`). Install the
+> preview into a separate virtual environment, never into the one your supported rig runs from.
+
+The idea: keep your own Inspect Robots install, tasks, embodiment and `config.ini`, and add
+Dreamscale as one more policy. Works with `inspect-robots` 0.53.1 through 0.59.x, and with either
+stock upstream [`inspect-robots-yam`](https://github.com/robocurve/inspect-robots-yam) (v0.36.0) or
+the Dreamscale fork.
+
+```bash
+uv pip install "inspect-robots-dreamscale @ git+https://github.com/Dreamscale-Labs/inspect-robots-dreamscale@thin-plugin"
+dreamscale login
+```
+
+Then point your Inspect Robots `config.ini` at the policy. Replace your existing `policy =` line,
+and replace (don't merge into) any `[policy.args]` section, because those args belong to whichever
+policy is named in `[defaults]`:
+
+```ini
+[defaults]
+policy = dreamscale
+
+[policy.args]
+model = dreamzero-yam
+```
+
+DreamZero-YAM is qualified at 30 Hz with 640x360 cameras named `top_cam`, `left_cam` and
+`right_cam`. Stock `yam_arms` defaults to 10 Hz and 224x224, so set these in `[embodiment.args]`
+(or pass `-E`): `control_hz = 30`, `cam_width = 640`, `cam_height = 360`. Keep your joint limits,
+step limits and gripper settings as your rig already has them.
+
+Example runs (every run is attended: you own the e-stop and the verdict prompt):
+
+```bash
+# One ad-hoc instruction
+inspect-robots run --instruction "Put the red block in the bowl"
+
+# Five epochs in one process: one Dreamscale session, a fresh episode per epoch
+inspect-robots run --instruction "Put the red block in the bowl" --epochs 5
+
+# Several registered tasks in one process, still one session
+inspect-robots eval-set 'my-bench/*'
+
+# Upstream's batch runner, from your rig directory (the one holding ./run and config.ini)
+../inspect-robots-yam/scripts/run_batch.sh -n 20 --instruction "Put the red block in the bowl"
+```
+
+**Warm reuse, and what it costs.** Inspect Robots builds one policy per process, and `run_batch.sh`
+deliberately starts a new process per trial (so the arms are released between trials). Without help
+every trial would pay a DreamZero-YAM cold start (minutes). So this branch holds the session warm for
+300 s after each process exits, and the next process within that window reclaims it in seconds. The
+first session open prints one line saying so. **Warm time is billed at the full rate** until it is
+reclaimed or the 300 s run out. Change the window with `-P keep_warm_s=<0..3600>`; `-P keep_warm_s=0`
+stops the session at exit instead (use it for your last run, or for unattended runs).
+
+What you will see on stderr:
+
+```text
+dreamscale: keep_warm_s=300: when this run exits the DreamZero-YAM session stays warm for up to 300 s ...
+dreamscale: session <id> ready in 142.3 s          # first process: cold start
+dreamscale: released session <id> to a warm hold of up to 300 s ...   # at exit
+dreamscale: session <id> reclaimed warm in 4.1 s   # next process, same session id
+```
+
+**Release at exit.** Inspect Robots never closes a policy, so the adapter releases the session when
+the process exits: it parks it (warm hold) or stops it (`keep_warm_s=0`), for exactly the session
+that process opened, waiting at most 20 s. Ctrl-C, `SIGTERM` and `SIGHUP` go through the same
+path (the latter two are turned into Ctrl-C while a session is open, unless something else already
+handles them). If the release cannot be confirmed, the adapter prints the session id and
+`dreamscale sessions stop <id>`; otherwise the control plane releases it when its 60 s lease lapses.
+
+**Stock YAM timing.** Stock `inspect-robots-yam` does not stamp per-camera capture times. The
+adapter then stamps each observation with its own clock when `act()` receives it and records
+`capture_timing: observation_fallback` in every telemetry row (`per_camera` when the embodiment
+supplies times, as the Dreamscale fork does, in which case the strict 5 s stale / 1 s future checks
+still apply). See "Observation and simulator contract" below for what that trades away.
+
 ## Install and discover
 
 ```bash
@@ -55,10 +135,10 @@ every other value fails during policy construction, before a paid session is ope
 servo loop. Dynamic cadence must not be advertised until observation production, temporal
 admission, inference, and action execution consume one resolved rate end to end.
 
-`-P keep_warm_s=<seconds>` holds the session after close (0-3600, default 0) so the next run reclaims
-it instead of starting cold -- 147s against 23s, measured back to back. **A hold is billed at the full
-rate and `close()` no longer stops the meter**, because parking keeps the GPU reserved for you. Use it
-while iterating; leave it at 0 for unattended runs.
+`-P keep_warm_s=<seconds>` holds the session after close (0-3600, **default 300 on this branch**) so
+the next run reclaims it instead of starting cold -- 147s against 23s, measured back to back. **A hold
+is billed at the full rate and `close()` no longer stops the meter**, because parking keeps the GPU
+reserved for you. Set `-P keep_warm_s=0` for unattended runs and for the last run of a session.
 
 **Nothing enforces this rate.** Inspect's rollout adds no wall-clock pacing, so the real rate is
 however fast your embodiment's `step()` returns; `control_hz` is what the action scheduler plans
@@ -85,10 +165,22 @@ Inspect episode.
 The existing task and embodiment must provide all of the following on every policy step:
 
 - `top_cam`, `left_cam`, and `right_cam` uint8 images, each with its own real Unix-epoch capture
-  time in seconds (not a process-monotonic clock and not one synthetic shared time);
+  time in seconds (not a process-monotonic clock and not one synthetic shared time) -- or, on this
+  branch, no `image_times` at all (see below);
 - finite packed `joint_pos` state with shape `(14,)` in YAM left-arm, left-gripper, right-arm,
   right-gripper order; and
 - Inspect's integer `extra["env_step"]`, starting at zero and advancing once per delivered action.
+
+When `image_times` is empty (stock upstream `inspect-robots-yam`), all three cameras are stamped
+with the adapter's `time.time()` at the moment `act()` received the observation, and telemetry rows
+record `capture_timing: observation_fallback` and `capture_time_source: adapter_wall_clock_at_act`.
+DreamZero-YAM's server admits frames by control tick (one frame to bootstrap, then its own
+four-frame history), not by capture time; it only requires capture times that never go backwards and
+that precede encoding, and both hold. What is lost: frame age is under-reported by the embodiment's
+capture-to-return latency (about one camera frame, 33 ms at 30 fps, for upstream's draining reader),
+`source_capture_to_execution_ms` is correspondingly optimistic, and a camera that stalls without
+raising cannot be detected by the adapter. A wall-clock step backwards (NTP) fails the step closed
+in either mode. A partial `image_times` (some cameras stamped, some not) is still rejected.
 
 The adapter declares a 14-dimensional raw absolute-joint action at the commanded rate. It returns exactly one
 action per Inspect `act()` call while Dreamscale owns DreamZero's managed action buffering. Simulator
@@ -124,8 +216,10 @@ readable after close so the caller can verify that the exact session is gone:
 uv run dreamscale sessions list
 ```
 
-Do not stop unrelated sessions. The adapter also registers a bounded process-exit fallback, but it
-is not a substitute for explicit close.
+Do not stop unrelated sessions. The adapter also releases the session at process exit (bounded to
+20 s, and early enough in interpreter shutdown that the control-plane call can still open a
+connection). That is the normal path under the `inspect-robots` CLI, which never closes a policy;
+code that owns the policy object should still close it explicitly.
 
 ## Physical YAM boundary
 
