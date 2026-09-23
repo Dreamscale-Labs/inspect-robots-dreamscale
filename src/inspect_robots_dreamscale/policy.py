@@ -5,6 +5,8 @@ from __future__ import annotations
 import atexit
 import concurrent.futures.thread  # noqa: F401 - see _register_threading_exit
 import math
+import os
+import shutil
 import signal
 import statistics
 import sys
@@ -164,15 +166,42 @@ def _log(message: str) -> None:
 
 _SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 _HEARTBEAT_S = 30.0
+_DEFAULT_COLUMNS = 80
+
+
+def _stream_columns(stream: Any) -> int:
+    """Current width of the terminal behind ``stream``; re-read on every redraw."""
+    try:
+        return os.get_terminal_size(stream.fileno()).columns
+    except Exception:
+        return shutil.get_terminal_size((_DEFAULT_COLUMNS, 24)).columns
+
+
+def _format_elapsed(seconds: int) -> str:
+    minutes, secs = divmod(max(seconds, 0), 60)
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
+
+
+def _fit(text: str, width: int) -> str:
+    """Cut ``text`` to ``width`` columns with an ellipsis; never wrap the spinner line."""
+    if width <= 0:
+        return ""
+    return text if len(text) <= width else text[: max(width - 1, 0)] + "…"
 
 
 class _StartupProgress:
     """Visible progress while a session starts, so a cold start never looks frozen.
 
     Inspect Robots calls ``reset()`` and waits; it has no progress surface for a
-    policy that is starting, so the adapter owns this. On a terminal it redraws one
-    spinner line with elapsed seconds and the SDK's latest stage; otherwise it
+    policy that is starting, so the adapter owns this. On a terminal it prints the
+    message once, then redraws one spinner line with elapsed time and the SDK's
+    latest stage, cut to the current terminal width on every redraw so it never
+    wraps (a wrapped line cannot be erased with a carriage return). Otherwise it
     prints each SDK stage plus a heartbeat every ``_HEARTBEAT_S`` seconds.
+
+    The SDK keeps the same ``on_progress`` sink for the whole session, so lines
+    that arrive after startup (such as the run summary at close) are printed as
+    plain lines, never as a revived spinner.
     """
 
     def __init__(
@@ -183,6 +212,7 @@ class _StartupProgress:
         interactive: bool | None = None,
         tick_s: float = 0.25,
         clock: Callable[[], float] = time.monotonic,
+        columns: Callable[[], int] | None = None,
     ) -> None:
         self._message = message
         self._stream = stream if stream is not None else sys.stderr
@@ -194,12 +224,14 @@ class _StartupProgress:
         self._interactive = interactive
         self._tick_s = tick_s
         self._clock = clock
+        self._columns = columns or (lambda: _stream_columns(self._stream))
         self._stage = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._started = 0.0
         self._line_open = False
+        self._active = False
 
     def _write(self, text: str) -> None:
         try:
@@ -212,10 +244,19 @@ class _StartupProgress:
         return int(self._clock() - self._started)
 
     def _render(self, frame: int) -> None:
-        stage = f" · {self._stage}" if self._stage else ""
         glyph = _SPINNER_FRAMES[frame % len(_SPINNER_FRAMES)]
-        self._write(f"\r\x1b[2K{glyph} dreamscale: {self._message} — {self._elapsed()}s{stage}")
+        # Elapsed time leads so it survives truncation on the narrowest terminals.
+        head = f"{glyph} {_format_elapsed(self._elapsed())} dreamscale: starting compute"
+        line = f"{head} · {self._stage}" if self._stage else head
+        # One column spare: some terminals wrap when the last column is written.
+        width = max(self._columns() - 1, 1)
+        self._write(f"\r\x1b[2K{_fit(line, width)}")
         self._line_open = True
+
+    def _clear_line(self) -> None:
+        if self._line_open:
+            self._write("\r\x1b[2K")
+            self._line_open = False
 
     def _run(self) -> None:
         frame = 0
@@ -227,16 +268,18 @@ class _StartupProgress:
                     self._render(frame)
                 elif self._clock() - last_beat >= _HEARTBEAT_S:
                     last_beat = self._clock()
-                    self._write(f"dreamscale: still starting … {self._elapsed()}s\n")
+                    self._write(
+                        f"dreamscale: still starting … {_format_elapsed(self._elapsed())}\n"
+                    )
 
     def update(self, line: str) -> None:
-        """SDK ``on_progress`` sink: show the newest startup stage."""
+        """SDK ``on_progress`` sink: the newest startup stage, or a plain line after."""
         text = " ".join(str(line).split())
         if not text:
             return
         with self._lock:
-            self._stage = text
-            if self._interactive:
+            if self._active and self._interactive:
+                self._stage = text
                 self._render(0)
             else:
                 self._write(f"dreamscale: {text}\n")
@@ -244,10 +287,10 @@ class _StartupProgress:
     def __enter__(self) -> _StartupProgress:
         self._started = self._clock()
         with self._lock:
+            self._active = True
+            self._write(f"dreamscale: {self._message}\n")
             if self._interactive:
                 self._render(0)
-            else:
-                self._write(f"dreamscale: {self._message}\n")
         self._thread = threading.Thread(
             target=self._run, name="dreamscale-startup-progress", daemon=True
         )
@@ -259,9 +302,8 @@ class _StartupProgress:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
         with self._lock:
-            if self._interactive and self._line_open:
-                self._write("\r\x1b[2K")
-                self._line_open = False
+            self._active = False
+            self._clear_line()
 
 
 def _raise_keyboard_interrupt(signum: int, _frame: object) -> None:
