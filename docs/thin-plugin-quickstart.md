@@ -130,6 +130,7 @@ CAN lines the wizard wrote.
 policy = dreamscale
 embodiment = yam_arms
 max_steps = 3600          ; 120 s at 30 Hz (the built-in default of 300 is only 10 s at 30 Hz)
+scorer = operator         ; score the y/n verdict you type (success_at_end would score 0 on a real rig)
 store_frames = true
 
 [policy.args]
@@ -139,6 +140,7 @@ model = dreamzero-yam
 control_hz = 30
 cam_width = 640
 cam_height = 360
+auto_start = false        ; ask before homing, instead of moving as soon as the run starts
 ```
 
 DreamZero-YAM is qualified only at **30 Hz with 640×360 frames**. Stock YAM defaults to 10 Hz and
@@ -182,10 +184,16 @@ inspect-robots-yam-health --watch
 
 Hold the e-stop, and keep hands clear of the grippers.
 
+Add `--max-action-delta 0.2` to every run command below, as the one-rollout example does. It limits each joint to
+0.2 rad of change per 30 Hz step, the same cap the qualified v0.1.21 rig uses. Without it, stock
+Inspect Robots allows about 5% of each joint's range per step, which is up to about 0.3 rad on
+some YAM joints. It also doesn't limit the first action of a rollout. `max_action_delta` isn't a
+`config.ini` setting, so pass it on the command line, or put it in the `./run` wrapper below.
+
 ### One rollout
 
 ```bash
-inspect-robots "Pack container"
+inspect-robots "Pack container" --max-action-delta 0.2
 ```
 
 1. The first run cold-starts the GPU, which takes a few minutes. While it starts, a spinner shows
@@ -213,7 +221,7 @@ git clone --depth 1 -b v0.36.0 https://github.com/robocurve/inspect-robots-yam ~
 ```
 
 ```bash
-cp ~/.config/inspect-robots/config.ini ~/dreamscale-rig/config.ini && printf '#!/usr/bin/env bash\nexec ~/dreamscale-rig/.venv/bin/inspect-robots run --config "$(dirname "$0")/config.ini" "$@"\n' > ~/dreamscale-rig/run && chmod +x ~/dreamscale-rig/run
+cp ~/.config/inspect-robots/config.ini ~/dreamscale-rig/config.ini && printf '#!/usr/bin/env bash\nexec ~/dreamscale-rig/.venv/bin/inspect-robots run --config "$(dirname "$0")/config.ini" --max-action-delta 0.2 "$@"\n' > ~/dreamscale-rig/run && chmod +x ~/dreamscale-rig/run
 ```
 
 Then run a batch:
@@ -256,6 +264,13 @@ dreamscale sessions stop <session-id>
 ```
 
 ## Good to know
+
+- **If a motor stops responding in the middle of a run:** you'll see `fail to communicate with the
+  motor N`. Stock YAM keeps the episode running with that arm dead, so press **Esc** at once. Then
+  check that arm's CAN cable and power, and run `ip -details -statistics link show <channel>`. A
+  healthy bus shows `ERROR-ACTIVE` with zero `error-warn` and `error-pass`.
+- **Updating the preview:** the branch changes. To pick up the latest commit, run:
+  `uv pip install --prerelease allow --reinstall-package inspect-robots-dreamscale "inspect-robots-dreamscale @ git+https://github.com/Dreamscale-Labs/inspect-robots-dreamscale@thin-plugin"`.
 
 - **Warm hold:** change it with `-P keep_warm_s=<0..3600>`, or set it in `[policy.args]`. The
   default is 300 s.
