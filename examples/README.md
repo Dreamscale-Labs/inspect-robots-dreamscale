@@ -3,7 +3,7 @@
 Reference code for running Dreamscale-hosted **DreamZero-YAM** on a physical
 bimanual YAM through Inspect Robots, using this adapter.
 
-See the [Inspect Robots guide](https://docs.dropbear.dreamscalelabs.com/guides/inspect-robots)
+See the [Inspect Robots guide](https://docs.dreamscalelabs.com/guides/inspect-robots)
 for the full integration reference.
 
 | directory | command rate | when to start here |

@@ -6,7 +6,7 @@ opens one lazy Dreamscale connection, and later trials reuse that connection whi
 logical episodes.
 
 Licensed under Apache 2.0. It supports Python 3.11 through 3.14 and requires the immutable
-`dreamscale[dreamzero]==0.1.0a25` SDK release.
+`dreamscale[dreamzero]==0.1.0a26` SDK release.
 
 Using it against a Dreamscale-hosted model needs an API key and an entitlement for that model;
 the adapter itself is open.
@@ -27,7 +27,7 @@ in the dashboard and run `uv run dreamscale login --api-key "<your key>"` instea
 Confirm the expected Dreamscale SDK is active before starting an evaluation:
 
 ```bash
-uv run python -c 'import dreamscale; assert dreamscale.__version__ == "0.1.0a25"'
+uv run python -c 'import dreamscale; assert dreamscale.__version__ == "0.1.0a26"'
 ```
 
 Verify that the entry point is available without opening a cloud session:
