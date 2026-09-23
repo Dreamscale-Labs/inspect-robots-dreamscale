@@ -316,7 +316,9 @@ def test_reset_reuses_connection_but_isolates_same_instruction_episodes(monkeypa
     policy.reset(scene)
     policy.close()
 
-    assert connects == [("dreamzero-yam", "nearest", None)]
+    assert [(model, region) for model, region, _ in connects] == [("dreamzero-yam", "nearest")]
+    # Startup progress is forwarded, never discarded: a silent cold start looks frozen.
+    assert callable(connects[0][2])
     assert remote.begin_calls == [
         ("spell NEURIPS", "upstream_eval"),
         ("spell NEURIPS", "upstream_eval"),

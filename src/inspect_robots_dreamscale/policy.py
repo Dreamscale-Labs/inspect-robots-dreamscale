@@ -162,6 +162,108 @@ def _log(message: str) -> None:
         pass
 
 
+_SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+_HEARTBEAT_S = 30.0
+
+
+class _StartupProgress:
+    """Visible progress while a session starts, so a cold start never looks frozen.
+
+    Inspect Robots calls ``reset()`` and waits; it has no progress surface for a
+    policy that is starting, so the adapter owns this. On a terminal it redraws one
+    spinner line with elapsed seconds and the SDK's latest stage; otherwise it
+    prints each SDK stage plus a heartbeat every ``_HEARTBEAT_S`` seconds.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stream: Any = None,
+        interactive: bool | None = None,
+        tick_s: float = 0.25,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._message = message
+        self._stream = stream if stream is not None else sys.stderr
+        if interactive is None:
+            try:
+                interactive = bool(self._stream.isatty())
+            except Exception:
+                interactive = False
+        self._interactive = interactive
+        self._tick_s = tick_s
+        self._clock = clock
+        self._stage = ""
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._started = 0.0
+        self._line_open = False
+
+    def _write(self, text: str) -> None:
+        try:
+            self._stream.write(text)
+            self._stream.flush()
+        except Exception:
+            pass
+
+    def _elapsed(self) -> int:
+        return int(self._clock() - self._started)
+
+    def _render(self, frame: int) -> None:
+        stage = f" · {self._stage}" if self._stage else ""
+        glyph = _SPINNER_FRAMES[frame % len(_SPINNER_FRAMES)]
+        self._write(f"\r\x1b[2K{glyph} dreamscale: {self._message} — {self._elapsed()}s{stage}")
+        self._line_open = True
+
+    def _run(self) -> None:
+        frame = 0
+        last_beat = self._clock()
+        while not self._stop.wait(self._tick_s):
+            with self._lock:
+                if self._interactive:
+                    frame += 1
+                    self._render(frame)
+                elif self._clock() - last_beat >= _HEARTBEAT_S:
+                    last_beat = self._clock()
+                    self._write(f"dreamscale: still starting … {self._elapsed()}s\n")
+
+    def update(self, line: str) -> None:
+        """SDK ``on_progress`` sink: show the newest startup stage."""
+        text = " ".join(str(line).split())
+        if not text:
+            return
+        with self._lock:
+            self._stage = text
+            if self._interactive:
+                self._render(0)
+            else:
+                self._write(f"dreamscale: {text}\n")
+
+    def __enter__(self) -> _StartupProgress:
+        self._started = self._clock()
+        with self._lock:
+            if self._interactive:
+                self._render(0)
+            else:
+                self._write(f"dreamscale: {self._message}\n")
+        self._thread = threading.Thread(
+            target=self._run, name="dreamscale-startup-progress", daemon=True
+        )
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        with self._lock:
+            if self._interactive and self._line_open:
+                self._write("\r\x1b[2K")
+                self._line_open = False
+
+
 def _raise_keyboard_interrupt(signum: int, _frame: object) -> None:
     raise KeyboardInterrupt(f"received {signal.Signals(signum).name}")
 
@@ -347,20 +449,23 @@ class DreamscalePolicy(PolicyBase):
                     "full rate; pass -P keep_warm_s=0 to stop the session at exit instead."
                 )
             started = time.monotonic()
-            self._remote = dreamscale.connect(
-                "dreamzero-yam",
-                region=self.region,
-                on_progress=None,
-                startup_timeout=self.startup_timeout_s,
-                # Nothing server-side takes a rate: this tells the SDK's replan
-                # scheduler how fast the caller intends to execute a chunk, so
-                # its latency-in-steps arithmetic matches reality.
-                control_hz=int(self.control_hz),
-                # Non-zero turns the SDK's close into a detach, so the session
-                # parks with the model resident and the next run reclaims it
-                # instead of paying another cold start. Parked time is billed.
-                keep_warm=self.keep_warm_s,
-            )
+            with _StartupProgress(
+                "starting DreamZero-YAM compute (a cold start can take several minutes)"
+            ) as progress:
+                self._remote = dreamscale.connect(
+                    "dreamzero-yam",
+                    region=self.region,
+                    on_progress=progress.update,
+                    startup_timeout=self.startup_timeout_s,
+                    # Nothing server-side takes a rate: this tells the SDK's replan
+                    # scheduler how fast the caller intends to execute a chunk, so
+                    # its latency-in-steps arithmetic matches reality.
+                    control_hz=int(self.control_hz),
+                    # Non-zero turns the SDK's close into a detach, so the session
+                    # parks with the model resident and the next run reclaims it
+                    # instead of paying another cold start. Parked time is billed.
+                    keep_warm=self.keep_warm_s,
+                )
             self._session_id = str(self._remote.session_id)
             self._session_connect_s = time.monotonic() - started
             acquisition, reason = _session_acquisition(self._remote)

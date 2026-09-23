@@ -188,7 +188,9 @@ Hold the e-stop, and keep hands clear of the grippers.
 inspect-robots "Pack container"
 ```
 
-1. The first run cold-starts the GPU, which takes a few minutes. A line tells you when it's ready.
+1. The first run cold-starts the GPU, which takes a few minutes. While it starts, a spinner shows
+   the elapsed seconds and the current startup stage. When output is not a terminal, it prints
+   plain lines and a "still starting" line every 30 s. A final line says the session is ready.
 2. YAM asks you to stand clear for homing, then to set up the scene. Press Enter each time.
 3. The rollout runs for up to 120 s. Press **Esc** to end it early.
 4. The arms park, and you answer `did the robot succeed? [y/n/partial/skip]`, plus an optional note.
