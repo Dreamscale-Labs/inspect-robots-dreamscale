@@ -14,14 +14,9 @@ the adapter itself is open.
 Worked examples live in [`examples/`](examples/): a complete evaluation and a
 skeleton embodiment showing the observation and action contract.
 
-## Use with your existing Inspect Robots setup (preview)
+## Use with your existing Inspect Robots setup
 
-> **Preview branch, not the supported path.** This section describes the `thin-plugin` branch
-> (`0.2.0.dev0`), which is unreleased and not on PyPI. The supported, qualified setup is still the
-> pinned rig composition (`inspect-robots-dreamscale-yam` `stable`, adapter `0.1.18`). Install the
-> preview into a separate virtual environment, never into the one your supported rig runs from.
-
-Step-by-step from a blank rig computer: [docs/thin-plugin-quickstart.md](docs/thin-plugin-quickstart.md).
+Step-by-step from a blank rig computer: [docs/quickstart.md](docs/quickstart.md).
 
 The idea: keep your own Inspect Robots install, tasks, embodiment and `config.ini`, and add
 Dreamscale as one more policy. Works with `inspect-robots` 0.53.1 through 0.59.x, and with either
@@ -29,7 +24,7 @@ stock upstream [`inspect-robots-yam`](https://github.com/robocurve/inspect-robot
 the Dreamscale fork.
 
 ```bash
-uv pip install "inspect-robots-dreamscale @ git+https://github.com/Dreamscale-Labs/inspect-robots-dreamscale@thin-plugin"
+uv pip install "inspect-robots-dreamscale @ git+https://github.com/Dreamscale-Labs/inspect-robots-dreamscale@v0.2.0" "dreamscale[dreamzero]==0.1.0a26"
 dreamscale login
 ```
 

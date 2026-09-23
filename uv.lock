@@ -438,7 +438,7 @@ wheels = [
 
 [[package]]
 name = "inspect-robots-dreamscale"
-version = "0.2.0.dev0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "dreamscale", extra = ["dreamzero"] },
