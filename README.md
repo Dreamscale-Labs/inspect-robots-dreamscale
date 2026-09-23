@@ -21,6 +21,8 @@ skeleton embodiment showing the observation and action contract.
 > pinned rig composition (`inspect-robots-dreamscale-yam` `stable`, adapter `0.1.18`). Install the
 > preview into a separate virtual environment, never into the one your supported rig runs from.
 
+Step-by-step from a blank rig computer: [docs/thin-plugin-quickstart.md](docs/thin-plugin-quickstart.md).
+
 The idea: keep your own Inspect Robots install, tasks, embodiment and `config.ini`, and add
 Dreamscale as one more policy. Works with `inspect-robots` 0.53.1 through 0.59.x, and with either
 stock upstream [`inspect-robots-yam`](https://github.com/robocurve/inspect-robots-yam) (v0.36.0) or
