@@ -4,12 +4,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
-from dropbear import ChunkEvent, MergeEvent, PolicyStepResult
-from dropbear.policy.config import ResolvedOptimizationConfig
-from dropbear.policy.runtime.contract import RuntimeContract
-from dropbear.policy.types import PolicyTimingEvent
+from dreamscale import ChunkEvent, MergeEvent, PolicyStepResult
+from dreamscale.policy.config import ResolvedOptimizationConfig
+from dreamscale.policy.runtime.contract import RuntimeContract
+from dreamscale.policy.types import PolicyTimingEvent
 
-from inspect_robots_dropbear.telemetry import (
+from inspect_robots_dreamscale.telemetry import (
     TrialContext,
     runtime_identity,
     telemetry_row,
@@ -177,12 +177,12 @@ class FakeRemote:
 def test_runtime_identity_uses_only_explicitly_whitelisted_fields(monkeypatch) -> None:
     """Catch broad remote serialization that would leak credentials or payloads."""
     package_versions = {
-        "dropbear": "0.1.0a10",
+        "dreamscale": "0.1.0a10",
         "inspect-robots": "0.1.0",
-        "inspect-robots-dropbear": "0.1.3",
+        "inspect-robots-dreamscale": "0.1.3",
     }
     monkeypatch.setattr(
-        "inspect_robots_dropbear.telemetry.importlib.metadata.version",
+        "inspect_robots_dreamscale.telemetry.importlib.metadata.version",
         lambda package: package_versions[package],
     )
 
@@ -194,9 +194,9 @@ def test_runtime_identity_uses_only_explicitly_whitelisted_fields(monkeypatch) -
     assert identity["runtime_contract"]["chunk_size"] == 24
     assert identity["resolved_optimization_config"]["backend"] == "pytorch"
     assert identity["packages"] == {
-        "dropbear": "0.1.0a10",
+        "dreamscale": "0.1.0a10",
         "inspect_robots": "0.1.0",
-        "inspect_robots_dropbear": "0.1.3",
+        "inspect_robots_dreamscale": "0.1.3",
     }
     for forbidden in (
         "api_key",
@@ -232,8 +232,8 @@ def test_write_trial_sidecar_is_atomic_sanitized_and_does_not_mutate_rows(
         epoch=0,
     )
 
-    assert pointer == "dropbear/20260812_010203_deadbeef/spell-NEURIPS-e0.jsonl"
-    assert re.fullmatch(r"dropbear/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", pointer)
+    assert pointer == "dreamscale/20260812_010203_deadbeef/spell-NEURIPS-e0.jsonl"
+    assert re.fullmatch(r"dreamscale/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", pointer)
     path = tmp_path / pointer
     assert json.loads(path.read_text()) == {
         "items": ["kept"],

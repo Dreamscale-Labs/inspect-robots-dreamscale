@@ -1,4 +1,4 @@
-"""Offline Inspect policy descriptor for Dropbear-hosted DreamZero-YAM."""
+"""Offline Inspect policy descriptor for Dreamscale-hosted DreamZero-YAM."""
 
 from __future__ import annotations
 
@@ -10,11 +10,11 @@ import time
 import warnings
 from collections.abc import Callable
 from numbers import Integral, Real
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
-import dropbear as _dropbear  # type: ignore[import-untyped]
+import dreamscale as _dreamscale  # type: ignore[import-untyped]
 import numpy as np
-from dropbear import RegionPreference, RunStrategy
+from dreamscale import RegionPreference, RunStrategy
 from inspect_robots.policy import PolicyBase, PolicyConfig, PolicyInfo
 from inspect_robots.rollout import TrialRecord
 from inspect_robots.scene import Scene
@@ -28,8 +28,8 @@ from inspect_robots.spaces import (
 )
 from inspect_robots.types import Action, ActionChunk, Observation
 
-from inspect_robots_dropbear.dreamzero_yam import to_dreamzero_yam
-from inspect_robots_dropbear.telemetry import (
+from inspect_robots_dreamscale.dreamzero_yam import to_dreamzero_yam
+from inspect_robots_dreamscale.telemetry import (
     TrialContext,
     runtime_identity,
     telemetry_row,
@@ -37,7 +37,7 @@ from inspect_robots_dropbear.telemetry import (
 )
 
 # Kept module-visible so discovery tests can prove construction does not call connect().
-dropbear: Any = _dropbear
+dreamscale: Any = _dreamscale
 
 # DreamZero YAM native control contract: 30 Hz, 24 consecutive actions (0.8 s).
 # Stated explicitly rather than read back from the SDK runtime contract on purpose.
@@ -125,8 +125,12 @@ def _resolve_keep_warm(requested: int | None) -> int:
     return resolved
 
 
-class DropbearPolicy(PolicyBase):
+class DreamscalePolicy(PolicyBase):
     """Describe DreamZero-YAM without reading config or opening a session."""
+
+    # The registry name, and the prefix of every metadata key and artifact path
+    # this policy writes. `DropbearPolicy` overrides it for pre-rename configs.
+    brand: ClassVar[str] = "dreamscale"
 
     region: RegionPreference
     sampling: Literal["upstream_eval", "async_8", "async_latest"]
@@ -181,7 +185,7 @@ class DropbearPolicy(PolicyBase):
         self._step_intervals_ms: list[float] = []
         self._rate_warned = False
         self.info = PolicyInfo(
-            name="dropbear",
+            name=self.brand,
             action_space=Box(
                 shape=(14,),
                 semantics=ActionSemantics(
@@ -208,9 +212,9 @@ class DropbearPolicy(PolicyBase):
 
     def _ensure_connected(self) -> Any:
         if self._closed:
-            raise RuntimeError("DropbearPolicy is closed")
+            raise RuntimeError(f"{type(self).__name__} is closed")
         if self._remote is None:
-            self._remote = dropbear.connect(
+            self._remote = dreamscale.connect(
                 "dreamzero-yam",
                 region=self.region,
                 on_progress=None,
@@ -229,7 +233,7 @@ class DropbearPolicy(PolicyBase):
 
     @property
     def session_id(self) -> str | None:
-        """The owned Dropbear session identity, retained after synchronous close."""
+        """The owned Dreamscale session identity, retained after synchronous close."""
         return self._session_id
 
     def prepare(self) -> None:
@@ -286,23 +290,23 @@ class DropbearPolicy(PolicyBase):
             timeout_s=self.timeout_s,
         )
         if not result.actions:
-            raise RuntimeError("Dropbear returned an empty model action chunk")
+            raise RuntimeError("Dreamscale returned an empty model action chunk")
         action_indices = getattr(result, "action_indices", None)
         action_index = int(action_indices[0]) if action_indices else 0
         join_key = f"predict:{result.chunk_id}:{action_index}"
         return Action(
             data=np.asarray(result.actions[0], dtype=np.float64),
             meta={
-                "dropbear_action_source": "model",
-                "dropbear_chunk_id": result.chunk_id,
-                "dropbear_join_key": join_key,
-                "dropbear_observation_id": result.observation_id,
-                "dropbear_step": action_index,
+                f"{self.brand}_action_source": "model",
+                f"{self.brand}_chunk_id": result.chunk_id,
+                f"{self.brand}_join_key": join_key,
+                f"{self.brand}_observation_id": result.observation_id,
+                f"{self.brand}_step": action_index,
             },
         )
 
     def act(self, observation: Observation) -> ActionChunk:
-        """Advance the externally clocked Dropbear episode by one Inspect step."""
+        """Advance the externally clocked Dreamscale episode by one Inspect step."""
         env_step = observation.extra.get("env_step")
         if isinstance(env_step, bool) or not isinstance(env_step, Integral) or env_step < 0:
             raise ValueError("extra['env_step'] must be a nonnegative integer")
@@ -335,18 +339,18 @@ class DropbearPolicy(PolicyBase):
             )
         join_key = f"{result.cache_generation}:{result.action_index}"
         action_meta = {
-            "dropbear_action_source": "hold" if result.stalled else "model",
-            "dropbear_cache_generation": result.cache_generation,
-            "dropbear_chunk_id": result.source_chunk_id,
-            "dropbear_join_key": join_key,
-            "dropbear_observation_id": result.observation_id,
-            "dropbear_step": result.action_index,
+            f"{self.brand}_action_source": "hold" if result.stalled else "model",
+            f"{self.brand}_cache_generation": result.cache_generation,
+            f"{self.brand}_chunk_id": result.source_chunk_id,
+            f"{self.brand}_join_key": join_key,
+            f"{self.brand}_observation_id": result.observation_id,
+            f"{self.brand}_step": result.action_index,
         }
         return ActionChunk(
             actions=[Action(data=np.asarray(result.action, dtype=np.float64), meta=action_meta)],
             control_hz=self.control_hz,
             inference_latency_s=wall_s,
-            meta={"dropbear_join_key": join_key},
+            meta={f"{self.brand}_join_key": join_key},
         )
 
     def _record_step_interval(self) -> float | None:
@@ -426,8 +430,9 @@ class DropbearPolicy(PolicyBase):
                     run_id=self._trial_context.run_id,
                     scene_id=self._trial_context.scene_id,
                     epoch=self._trial_context.epoch,
+                    prefix=self.brand,
                 )
-                record.metadata["dropbear_telemetry"] = pointer
+                record.metadata[f"{self.brand}_telemetry"] = pointer
         finally:
             if cleanup_error is not None:
                 raise cleanup_error
@@ -468,6 +473,22 @@ class DropbearPolicy(PolicyBase):
                 self._remote = None
 
 
+class DropbearPolicy(DreamscalePolicy):
+    """The same policy under its pre-rename name, for existing `--policy dropbear` configs.
+
+    It keeps the pre-rename artifact names (`dropbear_telemetry`,
+    `dropbear/<run_id>/...` and `dropbear_*` action metadata) so tooling written
+    against inspect-robots-dropbear output keeps working unchanged.
+    """
+
+    brand: ClassVar[str] = "dropbear"
+
+
+def dreamscale_policy(**kwargs: Any) -> DreamscalePolicy:
+    """Create the registry-discoverable Dreamscale Inspect policy."""
+    return DreamscalePolicy(**kwargs)
+
+
 def dropbear_policy(**kwargs: Any) -> DropbearPolicy:
-    """Create the registry-discoverable Dropbear Inspect policy."""
+    """Create the policy under its pre-rename registry name."""
     return DropbearPolicy(**kwargs)

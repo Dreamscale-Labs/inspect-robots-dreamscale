@@ -1,4 +1,4 @@
-"""Bounded, joinable Dropbear serving telemetry for Inspect trial artifacts."""
+"""Bounded, joinable Dreamscale serving telemetry for Inspect trial artifacts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from numbers import Integral, Real
 from pathlib import Path
 from typing import Any, cast
 
-from dropbear import PolicyStepResult  # type: ignore[import-untyped]
+from dreamscale import PolicyStepResult  # type: ignore[import-untyped]
 
 _UNSAFE_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
 _OMIT = object()
@@ -164,9 +164,9 @@ def runtime_identity(remote: Any) -> dict[str, object]:
         "runtime_contract": dataclasses.asdict(contract),
         "resolved_optimization_config": optimization.to_wire(),
         "packages": {
-            "dropbear": importlib.metadata.version("dropbear"),
+            "dreamscale": importlib.metadata.version("dreamscale"),
             "inspect_robots": importlib.metadata.version("inspect-robots"),
-            "inspect_robots_dropbear": importlib.metadata.version("inspect-robots-dropbear"),
+            "inspect_robots_dreamscale": importlib.metadata.version("inspect-robots-dreamscale"),
         },
     }
     return cast(dict[str, object], _clean_json(identity))
@@ -196,6 +196,7 @@ def write_trial_sidecar(
     run_id: str,
     scene_id: str,
     epoch: int,
+    prefix: str = "dreamscale",
 ) -> str:
     """Atomically persist strict JSONL and return its Inspect-log-relative pointer."""
     extension = ".jsonl"
@@ -205,7 +206,7 @@ def write_trial_sidecar(
         max_length=120 - len(epoch_suffix) - len(extension),
     )
     relative = Path(
-        "dropbear",
+        prefix,
         _safe_component(run_id),
         f"{scene}{epoch_suffix}{extension}",
     )

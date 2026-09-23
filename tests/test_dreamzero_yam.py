@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from inspect_robots.types import Observation
 
-from inspect_robots_dropbear.dreamzero_yam import to_dreamzero_yam
+from inspect_robots_dreamscale.dreamzero_yam import to_dreamzero_yam
 
 CAPTURE_EPOCH_S = 1_700_000_000.0
 
@@ -12,7 +12,7 @@ CAPTURE_EPOCH_S = 1_700_000_000.0
 @pytest.fixture(autouse=True)
 def fixed_wall_clock(monkeypatch) -> None:
     monkeypatch.setattr(
-        "inspect_robots_dropbear.dreamzero_yam.time.time",
+        "inspect_robots_dreamscale.dreamzero_yam.time.time",
         lambda: CAPTURE_EPOCH_S + 0.010,
     )
 
