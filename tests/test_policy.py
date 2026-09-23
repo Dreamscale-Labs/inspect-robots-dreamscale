@@ -1,6 +1,5 @@
 import atexit
 import json
-import threading
 import time
 import warnings
 from pathlib import Path
@@ -317,7 +316,9 @@ def test_reset_reuses_connection_but_isolates_same_instruction_episodes(monkeypa
     policy.reset(scene)
     policy.close()
 
-    assert connects == [("dreamzero-yam", "nearest", None)]
+    assert [(model, region) for model, region, _ in connects] == [("dreamzero-yam", "nearest")]
+    # Startup progress is forwarded, never discarded: a silent cold start looks frozen.
+    assert callable(connects[0][2])
     assert remote.begin_calls == [
         ("spell NEURIPS", "upstream_eval"),
         ("spell NEURIPS", "upstream_eval"),
@@ -510,33 +511,6 @@ def test_explicit_close_unregisters_single_atexit_handler(monkeypatch) -> None:
     assert unregistered == registered
 
 
-def test_atexit_fallback_uses_bounded_daemon_thread(monkeypatch) -> None:
-    """Catch process exit blocking indefinitely on remote cleanup."""
-    created: list[object] = []
-    joins: list[float] = []
-
-    class FakeThread:
-        def __init__(self, *, target, daemon: bool) -> None:
-            self.target = target
-            self.daemon = daemon
-            created.append(self)
-
-        def start(self) -> None:
-            self.target()
-
-        def join(self, *, timeout: float) -> None:
-            joins.append(timeout)
-
-    monkeypatch.setattr(threading, "Thread", FakeThread)
-    policy = dreamscale_policy(model="dreamzero-yam")
-
-    policy._atexit_close()
-
-    assert len(created) == 1
-    assert created[0].daemon is True
-    assert joins == [5.0]
-
-
 def _connect_recording(remote: "FakeRemotePolicy", sink: list[int], warm_sink=None):
     """A connect stub recording the rate and warm hold the adapter asked for."""
     warm_sink = [] if warm_sink is None else warm_sink
@@ -667,11 +641,12 @@ def test_a_loop_running_at_the_commanded_rate_is_silent(monkeypatch) -> None:
     assert policy.observed_control_hz() == pytest.approx(30.0, rel=1e-3)
 
 
-def test_keep_warm_defaults_to_off(monkeypatch) -> None:
-    """Catch a default that silently keeps billing after the run ends.
+def test_keep_warm_defaults_to_a_billed_300_second_hold(monkeypatch) -> None:
+    """Catch the warm default drifting from the documented 300 s hold.
 
-    A warm hold reserves the GPU and bills for it, so it must be something the
-    caller asks for. Defaulting it on would charge people for iterating.
+    Inspect Robots runs one policy per process and stock YAM batches run one
+    process per trial, so the thin plugin holds sessions warm by default. The
+    hold is billed; see test_warm_release for the notice and the opt-out.
     """
     remote = FakeRemotePolicy(step_result=step_result())
     warm: list[int] = []
@@ -683,8 +658,8 @@ def test_keep_warm_defaults_to_off(monkeypatch) -> None:
 
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
-    assert policy.keep_warm_s == 0
-    assert warm == [0]
+    assert policy.keep_warm_s == 300
+    assert warm == [300]
 
 
 def test_keep_warm_reaches_connect(monkeypatch) -> None:

@@ -4,7 +4,10 @@ import numpy as np
 import pytest
 from inspect_robots.types import Observation
 
-from inspect_robots_dreamscale.dreamzero_yam import to_dreamzero_yam
+from inspect_robots_dreamscale.dreamzero_yam import (
+    to_dreamzero_yam,
+    to_dreamzero_yam_with_timing,
+)
 
 CAPTURE_EPOCH_S = 1_700_000_000.0
 
@@ -217,3 +220,34 @@ def test_to_dreamzero_yam_normalizes_joint_conversion_failures(joint_pos: object
         ValueError, match=r"^joint_pos must contain exactly 14 finite values$"
     ):
         to_dreamzero_yam(observation)
+
+
+def test_present_camera_times_report_per_camera_timing() -> None:
+    """Catch a strict per-camera observation being labeled as a fallback."""
+    _mapped, timing = to_dreamzero_yam_with_timing(valid_observation(), received_s=1.0)
+
+    assert timing == "per_camera"
+
+
+def test_missing_camera_times_fall_back_to_the_receive_time() -> None:
+    """Catch stock inspect-robots-yam observations (no image_times) being rejected."""
+    strict = valid_observation()
+    stock = Observation(images=strict.images, state=strict.state, instruction="spell NEURIPS")
+    received_s = CAPTURE_EPOCH_S + 0.004
+
+    mapped, timing = to_dreamzero_yam_with_timing(stock, received_s=received_s)
+
+    stamp = round(received_s * 1_000_000_000)
+    assert timing == "observation_fallback"
+    assert mapped.camera_capture_times_ns == (stamp, stamp, stamp)
+
+
+def test_missing_camera_times_without_a_receive_time_use_the_wall_clock() -> None:
+    """Catch the plain converter losing the fallback its callers rely on."""
+    strict = valid_observation()
+    stock = Observation(images=strict.images, state=strict.state)
+
+    mapped = to_dreamzero_yam(stock)
+
+    stamp = round((CAPTURE_EPOCH_S + 0.010) * 1_000_000_000)
+    assert mapped.camera_capture_times_ns == (stamp, stamp, stamp)

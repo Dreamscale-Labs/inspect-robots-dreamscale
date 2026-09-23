@@ -4,17 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "inspect-robots-dreamscale"
-version = "0.1.18"
+version = "0.2.0"
 description = "Inspect Robots policy adapter for Dreamscale-hosted DreamZero-YAM"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
+  # Kept exact: the adapter reads the pinned SDK's session record to report
+  # warm reclaims, and a26 is the newest release.
   "dreamscale[dreamzero]==0.1.0a26",
-  # PyPI refuses direct references in uploaded distributions, and the pinned
-  # commit is one commit past the 0.53.1 release, so depend on the release.
-  "inspect-robots>=0.53.1,<0.54",
+  # Tested against 0.53.1 (the qualified rig composition), 0.58.0 and 0.59.0.
+  # 0.60 is excluded until it has been run through the same matrix.
+  "inspect-robots>=0.53.1,<0.60",
   "numpy>=2.0,<3",
 ]
 
