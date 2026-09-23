@@ -325,10 +325,11 @@ wheels = [
 ]
 
 [[package]]
-name = "dropbear"
-version = "0.1.0a14"
+name = "dreamscale"
+version = "0.1.0a26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "click" },
     { name = "dropbear-transport" },
     { name = "httpx" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -339,9 +340,9 @@ dependencies = [
     { name = "typer" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/eb/2e/edeae1e3dea9d7bb5c44c87713dd8eb3a8ba3b8fe9ab2bf1f7a33e615143/dropbear-0.1.0a14.tar.gz", hash = "sha256:8359355d51028ff007e0b72f71f7ea4dc6b4347710c4ecbb28df1e4aaa3c93da", size = 160223, upload-time = "2026-08-29T07:40:03.574Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/69/d22e78b993d16903b45e5381ec87271873a94fdd9e91eb959adbbf0a809d/dreamscale-0.1.0a26.tar.gz", hash = "sha256:102035ddf4ecbbca10264f31a9ac5548e1ee743d716f8a6b762c51b15f867161", size = 239859, upload-time = "2026-09-23T05:00:44.705Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/bc/94df8202c9906ba3705a5c8582916245e0f2ab63a3a43c913182d47d8530/dropbear-0.1.0a14-py3-none-any.whl", hash = "sha256:02fbae6a758cbd908ebe3aa369af968254021196bc29c596ec96dbab901d59b1", size = 182296, upload-time = "2026-08-29T07:40:01.868Z" },
+    { url = "https://files.pythonhosted.org/packages/97/24/73111739056271709b272a3f5c9ffc9be9d1d6ab8a225a766db4f9fe3fe5/dreamscale-0.1.0a26-py3-none-any.whl", hash = "sha256:60f9c513fb244720fde9c6d1f77c2f34640e76e90cdf8c65d5ab0b1e57b61aa2", size = 268660, upload-time = "2026-09-23T05:00:42.532Z" },
 ]
 
 [package.optional-dependencies]
@@ -351,7 +352,7 @@ dreamzero = [
 
 [[package]]
 name = "dropbear-transport"
-version = "0.1.1a6"
+version = "0.1.1a10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aioquic" },
@@ -362,9 +363,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/66/2a2992c94a154640ab87854e035d2829e159ff29729605ecedc0c6d2deac/dropbear_transport-0.1.1a6.tar.gz", hash = "sha256:ecf5a895a2ba952b4d1b52c591dbf5b2ff2b083b7c2821c1ded91f2262bc9fa8", size = 38800, upload-time = "2026-08-23T08:36:47.21Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/09/e4/e3fc306fba06e6d3710a75ff3d9bb9f9051e302b42e333ae5c984b67b7d6/dropbear_transport-0.1.1a10.tar.gz", hash = "sha256:47370833e4334cbe98379dfc4c4d17c8321f3f80df95a827f50ddeb59c068f02", size = 40225, upload-time = "2026-09-23T05:00:40.359Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/5f/4f1a5b2d98fddea5506b2eeeeca6c5fa0fd8e62f347d2bad8f5d74502852/dropbear_transport-0.1.1a6-py3-none-any.whl", hash = "sha256:a2511bb0f0e095a217b726d4c243bbefd02e98fda5ba8d536fb4a60b60be9c65", size = 45908, upload-time = "2026-08-23T08:36:45.856Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/cf/d91fd52184b331b12daadcd00e64b2034c6fd51c220b8bb749ddacf2ae13/dropbear_transport-0.1.1a10-py3-none-any.whl", hash = "sha256:2b9662360385222c9daae09eb3312c2f995b3a262498a5636f5ea68cae4a693a", size = 47415, upload-time = "2026-09-23T05:00:39.194Z" },
 ]
 
 [[package]]
@@ -436,11 +437,11 @@ wheels = [
 ]
 
 [[package]]
-name = "inspect-robots-dropbear"
-version = "0.1.17"
+name = "inspect-robots-dreamscale"
+version = "0.1.18"
 source = { editable = "." }
 dependencies = [
-    { name = "dropbear", extra = ["dreamzero"] },
+    { name = "dreamscale", extra = ["dreamzero"] },
     { name = "inspect-robots" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -455,7 +456,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dropbear", extras = ["dreamzero"], specifier = "==0.1.0a14" },
+    { name = "dreamscale", extras = ["dreamzero"], specifier = "==0.1.0a26" },
     { name = "inspect-robots", specifier = ">=0.53.1,<0.54" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "numpy", specifier = ">=2.0,<3" },

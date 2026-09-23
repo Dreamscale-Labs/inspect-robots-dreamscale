@@ -1,9 +1,9 @@
 # Examples
 
-Reference code for running Dropbear-hosted **DreamZero-YAM** on a physical
+Reference code for running Dreamscale-hosted **DreamZero-YAM** on a physical
 bimanual YAM through Inspect Robots, using this adapter.
 
-See the [Inspect Robots guide](https://docs.dropbear.dreamscalelabs.com/guides/inspect-robots)
+See the [Inspect Robots guide](https://docs.dreamscalelabs.com/guides/inspect-robots)
 for the full integration reference.
 
 | directory | command rate | when to start here |
@@ -29,16 +29,16 @@ reason to silently stretch the learned trajectory.
 ## Setup
 
 ```bash
-uv add inspect-robots-dropbear
-dropbear login --api-key "<your key>"   # or plain `dropbear login` with a browser
-dropbear status --model dreamzero-yam
+uv add inspect-robots-dreamscale
+uv run dreamscale login                 # or `dreamscale login --api-key "<your key>"` when headless
+uv run dreamscale status --model dreamzero-yam
 ```
 
-The SDK reads its credential from `~/.dropbear/config.toml`, which `login`
-writes; it does not read `DROPBEAR_API_KEY` from the environment.
+The SDK reads its credential from `~/.dreamscale/config.toml`, which `login`
+writes.
 
 Then edit `TASK_NAME` and `EMBODIMENT_NAME` in `run_eval.py` to your registered
-names. Your task and embodiment do not change to use Dropbear — only the policy
+names. Your task and embodiment do not change to use Dreamscale — only the policy
 does.
 
 > **These examples are deliberately incomplete, and none of it has run on a
@@ -73,7 +73,7 @@ hardware paces itself for free; anything simulated or stubbed has to be told to.
 The adapter measures the gap between steps and warns if it drifts more than 25%
 from what you commanded.
 
-**3. Keep `observe()` cheap.** Dropbear samples observations on the *capture*
+**3. Keep `observe()` cheap.** Dreamscale samples observations on the *capture*
 clock, not once per action, because the sampler always wants the freshest frame.
 An `observe()` that takes anything like a frame period starves the loop that
 receives actions. A 31 ms observation callback on a 33 ms budget was enough to
@@ -82,8 +82,8 @@ stall a run completely, with no error — it simply stopped delivering.
 ## Reading the numbers
 
 The adapter writes a sidecar per trial at
-`logs/dropbear/<run_id>/<scene>-e<epoch>.jsonl`, and records its path at
-`TrialRecord.metadata["dropbear_telemetry"]`. Server-stamped fields arrive with
+`logs/dreamscale/<run_id>/<scene>-e<epoch>.jsonl`, and records its path at
+`TrialRecord.metadata["dreamscale_telemetry"]`. Server-stamped fields arrive with
 the action, so they are measurements rather than client guesses:
 
 - `server_inference_ms` — GPU time

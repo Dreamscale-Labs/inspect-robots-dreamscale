@@ -1,4 +1,4 @@
-"""Strict conversion from Inspect observations to Dropbear DreamZero-YAM input."""
+"""Strict conversion from Inspect observations to Dreamscale DreamZero-YAM input."""
 
 from __future__ import annotations
 
@@ -7,16 +7,16 @@ import time
 from collections.abc import Mapping
 from typing import Any, cast
 
-import dropbear as _dropbear  # type: ignore[import-untyped]
+import dreamscale as _dreamscale  # type: ignore[import-untyped]
 import numpy as np
 import numpy.typing as npt
-from dropbear.dreamzero_yam import DreamZeroYamObservation  # type: ignore[import-untyped]
+from dreamscale.dreamzero_yam import DreamZeroYamObservation  # type: ignore[import-untyped]
 from inspect_robots.types import Observation
 
 _CAMERA_NAMES = ("top_cam", "left_cam", "right_cam")
 MAX_CAPTURE_AGE_S = 5.0
 MAX_CAPTURE_FUTURE_S = 1.0
-dropbear: Any = _dropbear
+dreamscale: Any = _dreamscale
 
 
 def _seconds_to_ns(value: object, *, camera: str) -> int:
@@ -87,7 +87,7 @@ def to_dreamzero_yam(observation: Observation) -> DreamZeroYamObservation:
         _mapping_value(observation.images, name, field="images") for name in _CAMERA_NAMES
     )
     times = _capture_times_ns(observation)
-    return dropbear.dreamzero_yam.observe(
+    return dreamscale.dreamzero_yam.observe(
         top_frame=frames[0],
         left_frame=frames[1],
         right_frame=frames[2],

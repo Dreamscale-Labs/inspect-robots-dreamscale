@@ -3,29 +3,33 @@ requires = ["hatchling>=1.18"]
 build-backend = "hatchling.build"
 
 [project]
-name = "inspect-robots-dropbear"
-version = "0.1.17"
-description = "Inspect Robots policy adapter for Dropbear-hosted DreamZero-YAM"
+name = "inspect-robots-dreamscale"
+version = "0.1.18"
+description = "Inspect Robots policy adapter for Dreamscale-hosted DreamZero-YAM"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 dependencies = [
-  "dropbear[dreamzero]==0.1.0a14",
+  "dreamscale[dreamzero]==0.1.0a26",
   # PyPI refuses direct references in uploaded distributions, and the pinned
   # commit is one commit past the 0.53.1 release, so depend on the release.
   "inspect-robots>=0.53.1,<0.54",
   "numpy>=2.0,<3",
 ]
 
+[project.urls]
+Repository = "https://github.com/Dreamscale-Labs/inspect-robots-dreamscale"
+Documentation = "https://docs.dreamscalelabs.com/guides/inspect-robots"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "ruff>=0.7", "mypy>=1.11"]
 
 [project.entry-points."inspect_robots.policies"]
-dropbear = "inspect_robots_dropbear:dropbear_policy"
+dreamscale = "inspect_robots_dreamscale:dreamscale_policy"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/inspect_robots_dropbear"]
+packages = ["src/inspect_robots_dreamscale"]
 
 [tool.hatch.metadata]
 allow-direct-references = true

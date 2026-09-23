@@ -1,14 +1,14 @@
-# inspect-robots-dropbear
+# inspect-robots-dreamscale
 
 An [Inspect Robots](https://github.com/robocurve/inspect-robots) policy adapter for
-Dropbear-hosted DreamZero-YAM. Discovery and construction are offline; the first trial reset
-opens one lazy Dropbear connection, and later trials reuse that connection while starting fresh
+Dreamscale-hosted DreamZero-YAM. Discovery and construction are offline; the first trial reset
+opens one lazy Dreamscale connection, and later trials reuse that connection while starting fresh
 logical episodes.
 
 Licensed under Apache 2.0. It supports Python 3.11 through 3.14 and requires the immutable
-`dropbear[dreamzero]==0.1.0a14` SDK release.
+`dreamscale[dreamzero]==0.1.0a26` SDK release.
 
-Using it against a Dropbear-hosted model needs an API key and an entitlement for that model;
+Using it against a Dreamscale-hosted model needs an API key and an entitlement for that model;
 the adapter itself is open.
 
 Worked examples live in [`examples/`](examples/): a complete evaluation and a
@@ -17,13 +17,17 @@ skeleton embodiment showing the observation and action contract.
 ## Install and discover
 
 ```bash
-uv add inspect-robots-dropbear
+uv add inspect-robots-dreamscale
+uv run dreamscale login
 ```
 
-Confirm the expected Dropbear SDK is active before starting an evaluation:
+`dreamscale login` opens a browser to approve this machine. On a headless controller, create a key
+in the dashboard and run `uv run dreamscale login --api-key "<your key>"` instead.
+
+Confirm the expected Dreamscale SDK is active before starting an evaluation:
 
 ```bash
-python -c 'import dropbear; assert dropbear.__version__ == "0.1.0a14"'
+uv run python -c 'import dreamscale; assert dreamscale.__version__ == "0.1.0a26"'
 ```
 
 Verify that the entry point is available without opening a cloud session:
@@ -32,11 +36,11 @@ Verify that the entry point is available without opening a cloud session:
 inspect-robots list policies
 ```
 
-The output must contain `dropbear`. Keep your existing registered task and embodiment; do not
+The output must contain `dreamscale`. Keep your existing registered task and embodiment; do not
 replace or rename either. Change only the policy selection in your existing evaluation command:
 
 ```bash
---policy dropbear -P model=dreamzero-yam
+--policy dreamscale -P model=dreamzero-yam
 ```
 
 The default is YAM's qualified `async_latest` mode. Use `sampling=async_8` for the explicit
@@ -73,7 +77,7 @@ captured only after a cold worker is ready. Then `predict_model_action(observati
 instruction=...)` blocks for one real model chunk without starting an execution episode. This
 distinction matters in `async_latest`: the first `act()` may correctly be a hold while inference is
 in flight, whereas the preflight method cannot pass until it has a model action. The caller must
-validate and discard that action; a later `reset()` reuses the same Dropbear connection for the live
+validate and discard that action; a later `reset()` reuses the same Dreamscale connection for the live
 Inspect episode.
 
 ## Observation and simulator contract
@@ -87,7 +91,7 @@ The existing task and embodiment must provide all of the following on every poli
 - Inspect's integer `extra["env_step"]`, starting at zero and advancing once per delivered action.
 
 The adapter declares a 14-dimensional raw absolute-joint action at the commanded rate. It returns exactly one
-action per Inspect `act()` call while Dropbear owns DreamZero's managed action buffering. Simulator
+action per Inspect `act()` call while Dreamscale owns DreamZero's managed action buffering. Simulator
 compatibility means matching those camera, state, action, clock, and rate contracts; it does not by
 itself establish physics parity, task success, or physical-robot safety.
 
@@ -96,10 +100,10 @@ itself establish physics parity, task success, or physical-robot safety.
 Inspect remains canonical for the EvalLog, aggregate scores, post-approval commanded-action JSONL,
 stored frames, Rerun recording, operator judgement, and trial termination/error state. The adapter
 adds one atomic diagnostics sidecar and records its relative path at
-`TrialRecord.metadata["dropbear_telemetry"]`:
+`TrialRecord.metadata["dreamscale_telemetry"]`:
 
 ```text
-dropbear/<run_id>/<sanitized-scene-id>-e<epoch>.jsonl
+dreamscale/<run_id>/<sanitized-scene-id>-e<epoch>.jsonl
 ```
 
 Schema-v2 sidecar rows contain package versions, session and serving identity, timestamp source,
@@ -107,7 +111,7 @@ commanded cadence, model/hold action source, source control tick, source camera
 capture-to-execution age, timing, accurate maximum overlapping-target revision, chunk/merge
 disposition, and the same Inspect environment step. Join them to the EvalLog, action JSONL, or
 Rerun timeline using `env_step`; use `join_key`
-(`<cache_generation>:<logical_action_index>`) for Dropbear chunk diagnostics. Sidecars do not
+(`<cache_generation>:<logical_action_index>`) for Dreamscale chunk diagnostics. Sidecars do not
 duplicate action vectors, images, credentials, authorization material, certificates, or endpoints.
 
 ## Deterministic cleanup
@@ -117,7 +121,7 @@ error or cancellation. `close()` is synchronous and idempotent, and `policy.sess
 readable after close so the caller can verify that the exact session is gone:
 
 ```bash
-dropbear sessions list
+uv run dreamscale sessions list
 ```
 
 Do not stop unrelated sessions. The adapter also registers a bounded process-exit fallback, but it

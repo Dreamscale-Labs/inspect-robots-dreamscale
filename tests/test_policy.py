@@ -9,15 +9,15 @@ from typing import Any
 
 import numpy as np
 import pytest
-from dropbear import PolicyStepResult
-from dropbear.policy.config import ResolvedOptimizationConfig
-from dropbear.policy.runtime.contract import RuntimeContract
+from dreamscale import PolicyStepResult
+from dreamscale.policy.config import ResolvedOptimizationConfig
+from dreamscale.policy.runtime.contract import RuntimeContract
 from inspect_robots.policy import Policy, PolicyConfig
 from inspect_robots.rollout import TrialRecord
 from inspect_robots.scene import Scene
 from inspect_robots.types import Observation
 
-from inspect_robots_dropbear import dropbear_policy
+from inspect_robots_dreamscale import dreamscale_policy
 
 
 class FakeRemotePolicy:
@@ -114,16 +114,16 @@ def step_result(*, stalled: bool = False) -> PolicyStepResult:
 
 
 def test_factory_constructs_only_dreamzero_yam_without_connecting(monkeypatch) -> None:
-    """Catch a discovery path that opens a Dropbear connection."""
+    """Catch a discovery path that opens a Dreamscale connection."""
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("constructor touched the network"),
     )
 
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     assert isinstance(policy, Policy)
-    assert policy.info.name == "dropbear"
+    assert policy.info.name == "dreamscale"
     assert policy.info.action_space.shape == (14,)
     assert policy.info.control_hz == 30.0
     assert policy.config == PolicyConfig(action_horizon=24, replan_interval=1)
@@ -131,9 +131,9 @@ def test_factory_constructs_only_dreamzero_yam_without_connecting(monkeypatch) -
 
 
 def test_factory_rejects_every_other_model_offline() -> None:
-    """Catch a factory that accepts a Dropbear model other than DreamZero-YAM."""
+    """Catch a factory that accepts a Dreamscale model other than DreamZero-YAM."""
     with pytest.raises(ValueError, match="only dreamzero-yam is supported"):
-        dropbear_policy(model="dreamzero-droid")
+        dreamscale_policy(model="dreamzero-droid")
 
 
 def test_factory_rejects_unknown_sampling_mode_offline() -> None:
@@ -142,21 +142,21 @@ def test_factory_rejects_unknown_sampling_mode_offline() -> None:
         ValueError,
         match="sampling must be upstream_eval, async_8, or async_latest",
     ):
-        dropbear_policy(model="dreamzero-yam", sampling="custom")
+        dreamscale_policy(model="dreamzero-yam", sampling="custom")
 
 
 def test_factory_accepts_explicit_async_latest_without_connecting(monkeypatch) -> None:
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("constructor touched the network"),
     )
 
-    policy = dropbear_policy(model="dreamzero-yam", sampling="async_latest")
+    policy = dreamscale_policy(model="dreamzero-yam", sampling="async_latest")
 
     assert policy.sampling == "async_latest"
 
 
-def test_reset_passes_default_startup_timeout_to_dropbear_connect(monkeypatch) -> None:
+def test_reset_passes_default_startup_timeout_to_dreamscale_connect(monkeypatch) -> None:
     """Catch restoring the SDK's shorter default startup deadline for DreamZero-YAM."""
     remote = FakeRemotePolicy()
     startup_timeouts: list[float] = []
@@ -174,8 +174,8 @@ def test_reset_passes_default_startup_timeout_to_dropbear_connect(monkeypatch) -
         startup_timeouts.append(startup_timeout)
         return remote
 
-    monkeypatch.setattr("inspect_robots_dropbear.policy.dropbear.connect", connect)
-    policy = dropbear_policy(model="dreamzero-yam")
+    monkeypatch.setattr("inspect_robots_dreamscale.policy.dreamscale.connect", connect)
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
@@ -191,8 +191,8 @@ def test_prepare_connects_once_without_starting_an_episode_or_inference(monkeypa
         connect_calls += 1
         return remote
 
-    monkeypatch.setattr("inspect_robots_dropbear.policy.dropbear.connect", connect)
-    policy = dropbear_policy(model="dreamzero-yam")
+    monkeypatch.setattr("inspect_robots_dreamscale.policy.dreamscale.connect", connect)
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     policy.prepare()
     policy.prepare()
@@ -221,8 +221,8 @@ def test_custom_startup_timeout_does_not_change_per_step_timeout(monkeypatch) ->
         startup_timeouts.append(startup_timeout)
         return remote
 
-    monkeypatch.setattr("inspect_robots_dropbear.policy.dropbear.connect", connect)
-    policy = dropbear_policy(
+    monkeypatch.setattr("inspect_robots_dreamscale.policy.dreamscale.connect", connect)
+    policy = dreamscale_policy(
         model="dreamzero-yam",
         startup_timeout_s=2400.0,
         timeout_s=17.0,
@@ -252,8 +252,8 @@ def test_blocking_model_prediction_reuses_connection_without_starting_episode(
         connect_calls += 1
         return remote
 
-    monkeypatch.setattr("inspect_robots_dropbear.policy.dropbear.connect", connect)
-    policy = dropbear_policy(model="dreamzero-yam", timeout_s=17.0)
+    monkeypatch.setattr("inspect_robots_dreamscale.policy.dreamscale.connect", connect)
+    policy = dreamscale_policy(model="dreamzero-yam", timeout_s=17.0)
 
     action = policy.predict_model_action(
         inspect_observation(env_step=0),
@@ -266,11 +266,11 @@ def test_blocking_model_prediction_reuses_connection_without_starting_episode(
     assert remote.begin_calls == [("spell NEURIPS", "async_latest")]
     assert np.array_equal(action.data, np.arange(14, dtype=np.float64))
     assert action.meta == {
-        "dropbear_action_source": "model",
-        "dropbear_chunk_id": 7,
-        "dropbear_join_key": "predict:7:0",
-        "dropbear_observation_id": 11,
-        "dropbear_step": 0,
+        "dreamscale_action_source": "model",
+        "dreamscale_chunk_id": 7,
+        "dreamscale_join_key": "predict:7:0",
+        "dreamscale_observation_id": 11,
+        "dreamscale_step": 0,
     }
 
 
@@ -283,12 +283,12 @@ def test_factory_rejects_invalid_startup_timeout_before_connect(
 ) -> None:
     """Catch malformed startup budgets reaching config/session side effects."""
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("invalid timeout opened a connection"),
     )
 
     with pytest.raises(ValueError, match="startup_timeout_s must be a finite positive number"):
-        dropbear_policy(model="dreamzero-yam", startup_timeout_s=startup_timeout_s)
+        dreamscale_policy(model="dreamzero-yam", startup_timeout_s=startup_timeout_s)
 
 
 def test_reset_reuses_connection_but_isolates_same_instruction_episodes(monkeypatch) -> None:
@@ -309,8 +309,8 @@ def test_reset_reuses_connection_but_isolates_same_instruction_episodes(monkeypa
         connects.append((model, region, on_progress))
         return remote
 
-    monkeypatch.setattr("inspect_robots_dropbear.policy.dropbear.connect", connect)
-    policy = dropbear_policy(model="dreamzero-yam", sampling="upstream_eval")
+    monkeypatch.setattr("inspect_robots_dreamscale.policy.dreamscale.connect", connect)
+    policy = dreamscale_policy(model="dreamzero-yam", sampling="upstream_eval")
     scene = Scene(id="spell", instruction="spell NEURIPS")
 
     policy.reset(scene)
@@ -329,10 +329,10 @@ def test_reset_reuses_connection_but_isolates_same_instruction_episodes(monkeypa
 def test_close_before_reset_is_offline_and_idempotent(monkeypatch) -> None:
     """Catch close accidentally connecting or releasing an owned remote twice."""
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("close touched the network"),
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     policy.close()
     policy.close()
@@ -342,10 +342,10 @@ def test_session_identity_is_read_only_and_survives_synchronous_close(monkeypatc
     """Let the composition runner verify cleanup after the remote is released."""
     remote = FakeRemotePolicy()
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: remote,
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     assert policy.session_id is None
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
@@ -366,10 +366,10 @@ def test_act_uses_env_step_and_returns_one_joinable_action(monkeypatch, stalled,
     """Catch a shifted control index, leaked chunk, or wrong action-source marker."""
     remote = FakeRemotePolicy(step_result=step_result(stalled=stalled))
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: remote,
     )
-    policy = dropbear_policy(model="dreamzero-yam", sampling="upstream_eval")
+    policy = dreamscale_policy(model="dreamzero-yam", sampling="upstream_eval")
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
     chunk = policy.act(inspect_observation(env_step=8))
@@ -378,28 +378,28 @@ def test_act_uses_env_step_and_returns_one_joinable_action(monkeypatch, stalled,
     assert len(chunk.actions) == 1
     assert chunk.actions[0].data.tolist() == [float(i) for i in range(14)]
     assert chunk.actions[0].meta == {
-        "dropbear_action_source": source,
-        "dropbear_cache_generation": 2,
-        "dropbear_chunk_id": 4,
-        "dropbear_join_key": "2:8",
-        "dropbear_observation_id": 11,
-        "dropbear_step": 8,
+        "dreamscale_action_source": source,
+        "dreamscale_cache_generation": 2,
+        "dreamscale_chunk_id": 4,
+        "dreamscale_join_key": "2:8",
+        "dreamscale_observation_id": 11,
+        "dreamscale_step": 8,
     }
     assert chunk.control_hz == 30.0
     assert chunk.inference_latency_s is not None
     assert chunk.inference_latency_s >= 0.0
-    assert chunk.meta == {"dropbear_join_key": "2:8"}
+    assert chunk.meta == {"dreamscale_join_key": "2:8"}
 
 
 @pytest.mark.parametrize("env_step", [None, True, 8.0, -1, "8"])
 def test_act_rejects_malformed_env_step_before_remote_step(monkeypatch, env_step) -> None:
-    """Catch an invalid Inspect clock value crossing the Dropbear boundary."""
+    """Catch an invalid Inspect clock value crossing the Dreamscale boundary."""
     remote = FakeRemotePolicy(step_result=step_result())
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: remote,
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
     observation = inspect_observation(env_step=env_step)
     if env_step is None:
@@ -422,10 +422,10 @@ def test_trial_end_preserves_partial_row_and_pointer_before_reraising_cleanup_er
     """Catch cleanup failure discarding the serving evidence needed to debug it."""
     remote = FakeRemotePolicy(step_result=step_result(), end_error=RuntimeError("end failed"))
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: remote,
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
     policy.on_trial_start("spell", 2, str(tmp_path), "run-123")
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
     policy.act(inspect_observation())
@@ -436,9 +436,9 @@ def test_trial_end_preserves_partial_row_and_pointer_before_reraising_cleanup_er
 
     assert record.metadata == {
         "existing": "kept",
-        "dropbear_telemetry": "dropbear/run-123/spell-e2.jsonl",
+        "dreamscale_telemetry": "dreamscale/run-123/spell-e2.jsonl",
     }
-    sidecar = tmp_path / record.metadata["dropbear_telemetry"]
+    sidecar = tmp_path / record.metadata["dreamscale_telemetry"]
     rows = [json.loads(line) for line in sidecar.read_text().splitlines()]
     assert len(rows) == 1
     assert rows[0]["join_key"] == "2:8"
@@ -451,10 +451,10 @@ def test_failed_pre_episode_reset_writes_no_empty_sidecar_or_pointer(
     """Catch a failed reset being misrepresented as a delivered telemetry artifact."""
     remote = FakeRemotePolicy(begin_error=RuntimeError("begin failed"))
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: remote,
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
     policy.on_trial_start("spell", 0, str(tmp_path), "run-123")
     with pytest.raises(RuntimeError, match="begin failed"):
         policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
@@ -462,8 +462,8 @@ def test_failed_pre_episode_reset_writes_no_empty_sidecar_or_pointer(
 
     policy.on_trial_end(record, str(tmp_path), "run-123")
 
-    assert "dropbear_telemetry" not in record.metadata
-    assert not (tmp_path / "dropbear").exists()
+    assert "dreamscale_telemetry" not in record.metadata
+    assert not (tmp_path / "dreamscale").exists()
 
 
 def test_telemetry_records_runtime_transport_state_at_action_time(
@@ -472,10 +472,10 @@ def test_telemetry_records_runtime_transport_state_at_action_time(
     """Catch a post-connect transport fallback being hidden by stale runtime identity."""
     remote = FakeRemotePolicy(step_result=step_result())
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: remote,
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
     policy.on_trial_start("spell", 0, str(tmp_path), "run-123")
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
     remote.transport_mode = "relay"
@@ -485,7 +485,7 @@ def test_telemetry_records_runtime_transport_state_at_action_time(
 
     policy.on_trial_end(record, str(tmp_path), "run-123")
 
-    row = json.loads((tmp_path / record.metadata["dropbear_telemetry"]).read_text())
+    row = json.loads((tmp_path / record.metadata["dreamscale_telemetry"]).read_text())
     assert row["runtime"]["transport_mode"] == "relay"
     assert row["runtime"]["fallback_reason"] == "quic_result_timeout"
     assert row["runtime"]["sampling"] == "async_latest"
@@ -502,7 +502,7 @@ def test_explicit_close_unregisters_single_atexit_handler(monkeypatch) -> None:
     monkeypatch.setattr(atexit, "register", lambda handler: registered.append(handler) or handler)
     monkeypatch.setattr(atexit, "unregister", unregistered.append)
 
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
     policy.close()
     policy.close()
 
@@ -528,7 +528,7 @@ def test_atexit_fallback_uses_bounded_daemon_thread(monkeypatch) -> None:
             joins.append(timeout)
 
     monkeypatch.setattr(threading, "Thread", FakeThread)
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     policy._atexit_close()
 
@@ -563,10 +563,10 @@ def test_control_hz_defaults_to_the_native_rate(monkeypatch) -> None:
     remote = FakeRemotePolicy(step_result=step_result())
     rates: list[int] = []
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, rates),
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
     chunk = policy.act(inspect_observation())
@@ -586,21 +586,21 @@ def test_unusable_control_hz_fails_before_a_session_is_opened(
 ) -> None:
     """Catch an unusable rate that only surfaces after paying for a cold start."""
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("invalid control_hz opened a connection"),
     )
     with pytest.raises(ValueError, match="requires exactly 30 Hz"):
-        dropbear_policy(model="dreamzero-yam", control_hz=control_hz)
+        dreamscale_policy(model="dreamzero-yam", control_hz=control_hz)
 
 
 def test_step_interval_is_recorded_and_absent_on_the_first_step(monkeypatch) -> None:
     """Catch losing the only measurement of the rate the loop actually ran at."""
     remote = FakeRemotePolicy(step_result=step_result())
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, []),
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
     policy.on_trial_start("spell", 0, "logs", "run-1")
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
@@ -624,15 +624,15 @@ def test_a_loop_running_at_the_wrong_rate_is_reported(monkeypatch) -> None:
     """
     remote = FakeRemotePolicy(step_result=step_result())
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, []),
     )
     # Command 30 Hz, then step at 10 Hz (100 ms apart) by advancing the clock.
     now_ns = [0]
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.time.monotonic_ns", lambda: now_ns[0]
+        "inspect_robots_dreamscale.policy.time.monotonic_ns", lambda: now_ns[0]
     )
-    policy = dropbear_policy(model="dreamzero-yam", control_hz=30)
+    policy = dreamscale_policy(model="dreamzero-yam", control_hz=30)
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
     with pytest.warns(RuntimeWarning, match="control_hz commands 30 Hz"):
@@ -647,14 +647,14 @@ def test_a_loop_running_at_the_commanded_rate_is_silent(monkeypatch) -> None:
     """Catch a rate check noisy enough that people learn to ignore it."""
     remote = FakeRemotePolicy(step_result=step_result())
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, []),
     )
     now_ns = [0]
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.time.monotonic_ns", lambda: now_ns[0]
+        "inspect_robots_dreamscale.policy.time.monotonic_ns", lambda: now_ns[0]
     )
-    policy = dropbear_policy(model="dreamzero-yam", control_hz=30)
+    policy = dreamscale_policy(model="dreamzero-yam", control_hz=30)
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
     with warnings.catch_warnings():
@@ -676,10 +676,10 @@ def test_keep_warm_defaults_to_off(monkeypatch) -> None:
     remote = FakeRemotePolicy(step_result=step_result())
     warm: list[int] = []
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, [], warm),
     )
-    policy = dropbear_policy(model="dreamzero-yam")
+    policy = dreamscale_policy(model="dreamzero-yam")
 
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
 
@@ -692,10 +692,10 @@ def test_keep_warm_reaches_connect(monkeypatch) -> None:
     remote = FakeRemotePolicy(step_result=step_result())
     warm: list[int] = []
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, [], warm),
     )
-    policy = dropbear_policy(model="dreamzero-yam", keep_warm_s=300)
+    policy = dreamscale_policy(model="dreamzero-yam", keep_warm_s=300)
 
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
     policy.act(inspect_observation())
@@ -710,33 +710,54 @@ def test_unusable_keep_warm_fails_before_a_session_is_opened(
 ) -> None:
     """Catch an unusable hold that only surfaces after paying a cold start."""
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("invalid keep_warm_s opened a connection"),
     )
     with pytest.raises(ValueError, match="keep_warm_s"):
-        dropbear_policy(model="dreamzero-yam", keep_warm_s=keep_warm_s)
+        dreamscale_policy(model="dreamzero-yam", keep_warm_s=keep_warm_s)
 
 
 def test_keep_warm_bounds_are_inclusive(monkeypatch) -> None:
     """Catch an off-by-one at either end of the documented range."""
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         lambda *_args, **_kwargs: pytest.fail("constructor touched the network"),
     )
-    assert dropbear_policy(model="dreamzero-yam", keep_warm_s=0).keep_warm_s == 0
-    assert dropbear_policy(model="dreamzero-yam", keep_warm_s=3600).keep_warm_s == 3600
+    assert dreamscale_policy(model="dreamzero-yam", keep_warm_s=0).keep_warm_s == 0
+    assert dreamscale_policy(model="dreamzero-yam", keep_warm_s=3600).keep_warm_s == 3600
 
 
 def test_keep_warm_is_recorded_in_telemetry(monkeypatch) -> None:
     """Catch a surprising invoice that cannot be explained from the sidecar."""
     remote = FakeRemotePolicy(step_result=step_result())
     monkeypatch.setattr(
-        "inspect_robots_dropbear.policy.dropbear.connect",
+        "inspect_robots_dreamscale.policy.dreamscale.connect",
         _connect_recording(remote, []),
     )
-    policy = dropbear_policy(model="dreamzero-yam", keep_warm_s=120)
+    policy = dreamscale_policy(model="dreamzero-yam", keep_warm_s=120)
     policy.on_trial_start("spell", 0, "logs", "run-1")
     policy.reset(Scene(id="spell", instruction="spell NEURIPS"))
     policy.act(inspect_observation())
 
     assert policy._telemetry_rows[0]["runtime"]["keep_warm_s"] == 120
+
+
+def test_dreamscale_is_the_only_policy_name_this_package_registers() -> None:
+    """Catch a dropped entry point, or a pre-rename name coming back."""
+    from importlib.metadata import entry_points
+
+    names = {
+        ep.name: ep.value
+        for ep in entry_points(group="inspect_robots.policies")
+        if ep.value.startswith("inspect_robots_dreamscale")
+    }
+
+    assert names == {"dreamscale": "inspect_robots_dreamscale:dreamscale_policy"}
+
+
+def test_closed_error_names_the_class_the_caller_constructed() -> None:
+    """Catch a closed-policy error naming a class the caller never used."""
+    policy = dreamscale_policy(model="dreamzero-yam")
+    policy.close()
+    with pytest.raises(RuntimeError, match="^DreamscalePolicy is closed$"):
+        policy.prepare()

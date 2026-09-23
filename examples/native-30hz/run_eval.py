@@ -1,15 +1,15 @@
-"""Run a Dropbear-hosted DreamZero-YAM policy through Inspect Robots.
+"""Run a Dreamscale-hosted DreamZero-YAM policy through Inspect Robots.
 
 Adapted from a run that actually completed against production:
 120 steps, 51 model-sourced actions, GPU inference 324.9 ms p50, over a
 `wss_tunnel` data plane to `us-west-2`.
 
 Replace `TASK_NAME` and `EMBODIMENT_NAME` with your own registered names. Your
-task and embodiment do not change to use Dropbear -- only the policy does.
+task and embodiment do not change to use Dreamscale -- only the policy does.
 
     python run_eval.py
 
-Requires `dropbear login` (or `dropbear login --api-key "<key>"` on a headless
+Requires `dreamscale login` (or `dreamscale login --api-key "<key>"` on a headless
 controller) and an entitlement for the model.
 """
 
@@ -44,9 +44,9 @@ def summarise_sidecar(log_dir: str) -> None:
     difference only appears here.
     """
 
-    sidecars = sorted(pathlib.Path(log_dir).glob("dropbear/*/*.jsonl"))
+    sidecars = sorted(pathlib.Path(log_dir).glob("dreamscale/*/*.jsonl"))
     if not sidecars:
-        print("no Dropbear sidecar found; did the policy connect?", file=sys.stderr)
+        print("no Dreamscale sidecar found; did the policy connect?", file=sys.stderr)
         return
 
     rows = [json.loads(line) for line in sidecars[-1].read_text().splitlines() if line.strip()]
@@ -89,14 +89,14 @@ def summarise_sidecar(log_dir: str) -> None:
 
 def main() -> int:
     # No credential preflight here on purpose. The SDK reads its key from
-    # ~/.dropbear/config.toml, not from the environment, so an env-var check
-    # would pass for someone who has not run `dropbear login` and fail for
+    # ~/.dreamscale/config.toml, not from the environment, so an env-var check
+    # would pass for someone who has not run `dreamscale login` and fail for
     # someone who has. `connect()` already reports a missing credential
     # precisely, and names the command that fixes it.
 
     # `resolve` returns a constructed object, not a factory. Policy parameters
     # are the same ones you would pass with `-P`, given as keyword arguments.
-    policy = resolve("policy", "dropbear", model=MODEL, control_hz=CONTROL_HZ)
+    policy = resolve("policy", "dreamscale", model=MODEL, control_hz=CONTROL_HZ)
     task = resolve("task", TASK_NAME)
     embodiment = resolve("embodiment", EMBODIMENT_NAME)
 
